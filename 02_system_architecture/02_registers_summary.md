@@ -41,7 +41,7 @@ Lantiq Falcon（PEB/PEF 98035）通过五个全局控制与状态寄存器模块
 | :--- | :--- | :--- | :--- |
 | `[31]` | `SFC` | `0x80000000` | Soft Fuse Control（`0` = 未通过软件覆写熔丝，`1` = 已通过软件覆写熔丝） |
 | `[30]` | `SC_MBCFG` | `0x40000000` | BIST 控制选择（`0` = BIST 由 `MBCFG` 寄存器控制，`1` = BIST 由外部引脚控制） |
-| `[29:26]` | `F0` | `0x3C000000` | 芯片变体标识：`0` = Falcon-D，`1` = Falcon-V，`2` = Falcon-M，`3` = Falcon-S（SFP） |
+| `[29:26]` | `F0` | `0x3C000000` | 旧平台 `prom.c` 识别 `0` = Falcon-D、`1` = Falcon-V、`2` = Falcon-M；其余值返回通用 Falcon 名称。不能据此直接确认 `3 = Falcon-S` 或外设裁剪 |
 | `[25:20]` | `VCALMM20` | `0x03F00000` | GPADC 20 mV 基准电压校准值 |
 | `[19:14]` | `VCALMM100` | `0x000FC000` | GPADC 100 mV 基准电压校准值 |
 | `[13:8]` | `VCALMM400` | `0x00003F00` | GPADC 400 mV 基准电压校准值 |

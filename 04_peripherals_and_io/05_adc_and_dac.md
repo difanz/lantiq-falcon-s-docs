@@ -57,6 +57,8 @@ flowchart TD
 
 ### 2. `GPON_MM_SLICE_PDI` 寄存器映射（`0x1DD00100`–`0x1DD00160`）
 
+下表偏移均相对于 **PMA 基址 `0x1DD00000`**，不是相对于 MM 切片起点 `0x1DD00100`。例如 `ADC` 的物理地址为 `0x1DD00100`，不能将 `0x100` 再加到切片起点上。结果寄存器的 16 位输出也不等于模拟 ADC 的原生有效分辨率。
+
 | 偏移 | 寄存器名称 | 复位/初始化值 | 位域定义与硬件说明 |
 | :--- | :--- | :--- | :--- |
 | `0x100` | `ADC` | `0x004C9262` | **SAR ADC 模拟与时序配置**：`SET_REFBUF_CURR [25:23]`（基准缓冲电流）、`SET_START [22:19]`（每次转换周期数减 1）、`SET_ROM_START [18:15]`（迭代最高 ROM 地址）、`SET_SCR_STATE [14:13]`（扰码状态）、`SET_COMP_CURR [12:10]`（比较器偏置电流 `12.5 µA × N`）、`SET_OFFSET_CAL_EN [9]`（比较器失调校准使能）、`SET_RESETARITH [8]`、`SET_ROM_SEL [7:6]`、`SET_COMP2ARRAY [5:3]`、`SET_COMP2ARITH [2:0]` |

@@ -6,7 +6,7 @@ GPE 数据通路在硬件上同时支持**无 CPU 介入的全卸载线速转发
 
 ## 1. 端到端硬件全卸载快转路径（Happy Hardware Forward Path）
 
-在稳态二层桥接与 VLAN 转发场景下，GPON ANI 侧与以太网 UNI 侧之间的双向数据流量全部在片上硬件状态机、包缓冲 RAM（`SSB0`）与微码引擎（`SCE` + `COP0..5`）内部闭环流动，主控 `VPE0` CPU 全程**零中断、零内存拷贝、零描述符干预**。
+在稳态二层桥接与 VLAN 转发场景下，GPON ANI 侧与以太网 UNI 侧之间的双向数据流量全部在片上硬件状态机、包缓冲 RAM（`SSB0`）与微码引擎（`SCE` + `COP0..5`）内部闭环流动，普通转发包无需逐包经过主控 `VPE0`。控制面、异常、拥塞与统计仍可能引起 CPU 中断或软件处理，因此这里不表示整机“零中断”，也不是吞吐量实测。
 
 ```mermaid
 flowchart LR
@@ -62,14 +62,14 @@ flowchart LR
 ### 1.1 快转路径实现零 CPU 介入的四项硬件机制
 
 1. **硬件闭环内存管理（`FSQM` + `SSB0`）**：
-   - 入向 DMA 控制器（`ICTRLG` 或 `ICTRLL0..3`）在收到帧首字节时直接向 `FSQM`（`0x1D500000`）的分配队列（`OQ1`）弹出 15-bit 逻辑段地址（`LSA`），按 64 字节粒度写入 `SSB0`（`0x1F200000`）并在 `LLT`（`0x1D510000`）中串联成链。
+   - 入向 DMA 控制器（`ICTRLG` 或 `ICTRLL0..3`）在收到帧首字节时直接向 `FSQM`（`0x1D500000`）的分配队列（`OQ1`）弹出 15-bit 逻辑段地址（`LSA`），按 64 字节粒度写入 `SSB0`（`0x1F200000`）并在 `LLT`（`0x1D5C0000`）中串联成链。
    - 出向 DMA 控制器（`OCTRLL0..3` 或 `OCTRLG`）每向物理层移出一个 64 字节段，立即将该 `LSA` 推入 `FSQM` 的释放队列（`IQ1`）；若帧在入向因 CRC/FCS 错误或超长被丢弃，或因 `TMU` WRED 拥塞被丢弃，硬件同样自动遍历 `LLT` 回收整条段链。
 2. **双段式头部/净荷分离改写（Split Header/Body Envelope）**：
    - 当 `PE0`–`PE5` 对报文执行 VLAN 标签压入（`+4 B` / `+8 B`）、剥离（`-4 B` / `-8 B`）或 PPPoE/MAC 改写时，二层帧头长度发生变化。
    - 为避免在 `SSB0` 中搬移后续上千字节的报文净荷，`MERGE`（`0x1D600600`）向 `FSQM` 申请一个独立的 **64 字节新头部段（`New_HLSA`）**，将改写后的二层头（长度 `HDRL` 字节）写入 `New_HLSA` 偏移 `0` 处，并在 `LLT` 中将 `New_HLSA` 指向原始首段 `Original_HLSA`（`LLT[New_HLSA] = Original_HLSA`），同时在描述符中记录原始二层头被跳过字节数 `OFFS` 与剩余净荷长度 `BDYL`。
    - 出向 DMA 读取时先从 `New_HLSA` 读取 `HDRL` 字节新头，随后沿 `LLT` 跳至 `Original_HLSA` 的 `+OFFS` 字节偏移处继续读取 `BDYL` 字节净荷，在发送流水线上完成实时拼接。
 3. **微码与协处理器硬件自主 MAC 学习（`COP1` `FWD`）**：
-   - 上行以太网帧经过 `PE` 与 `COP1` 时，若源 MAC（`FID + SMAC`）未在 `SHORT_FWD_TABLE`（ID 10）中命中，`IF_FWD_LEARN` 微码直接利用 `COP1` 的哈希桶分配与时间戳指令完成硬件自动学习及老化刷新，无需上送 CPU 学习。
+   - 上行以太网帧经过 `PE` 与 `COP1` 时，若源 MAC（`FID + SMAC`）未在 `SHORT_FWD_TABLE`（ID 10）中命中，`IF_FWD_RELEARN` / `IF_FWD_ADD` 微码直接利用 `COP1` 的哈希桶分配与时间戳指令完成硬件自动学习及老化刷新，无需上送 CPU 学习。
 4. **BWMAP 硬件直驱的上行突发与分片（`GTC` -> `OCTRLG` -> `TMU`）**：
    - `GTC` 从每帧下行 PCBd 提取出 BWMAP 授权后直接触发 `OCTRLG`。`OCTRLG` 自动查表将 12-bit `Alloc-ID` 转换为 `TMU` 的 `rEPN`/`pEPN` 端口号，实时读取队列堆积量生成 `DBRu` 报告，并按授权窗口剩余字节数对任意长度的以太网帧实施字节级 GEM 切片与上下文挂起/恢复（保存在 `DPTR[64]` 与 `DCONTEXT[64]` 中）。
 
@@ -134,7 +134,7 @@ GEM 净荷经过 `GTC` 在线 AES-128 CTR 解密并由 `ICTRLG` 跨分片（连�
 
 ### 2.3 片上 `SSB0` 内存信封与 128-bit 描述符（In-Memory Envelope）
 
-报文在 `SSB0`（物理基址 `0x1F200000`，有效数据包缓冲区起始偏移由 `SBS0CTRL.BAR1` 指定，即 `PSA = 0x1F200000 + BAR1 + LSA × 64`）中传递时，在 `SCE` 处理前后具有两种不同的内存信封形态：
+报文在 `SSB0`（物理基址 `0x1F200000`，有效数据包缓冲区起始偏移由 `SBS0CTRL.BAR1` 指定，驱动使用 `BAR1 & SBS0CTRL_BAR1_BA1V_MASK` 提取可变边界；不能直接把完整 `BAR1` 寄存器值当作字节偏移）中传递时，在 `SCE` 处理前后具有两种不同的内存信封形态：
 
 ```mermaid
 flowchart TD
@@ -183,8 +183,8 @@ flowchart TD
     subgraph CPU_HW_IF["CPU 接入 GPE 的 5 组硬件接口"]
         ICTRLC0["ICTRLC0 0x1D461000 - 上行入向注入"]
         ICTRLC1["ICTRLC1 0x1D461100 - 下行入向与命令注入"]
-        LINK0["LINK0 0x1D450000 - 绕过 SCE 直接入队 TMU"]
-        LINK1["LINK1 0x1D450100 - OMCI 入向直读"]
+        LINK0["LINK0 0x1D600200 - 绕过 SCE 直接入队 TMU"]
+        LINK1["LINK1 0x1D600300 - OMCI 入向直读"]
         OCTRLC["OCTRLC 0x1D441000 - CPU 出向端口调度读取"]
     end
 
@@ -214,8 +214,8 @@ flowchart TD
 | `OCTRLC` | `0x1D441000` | `TMU` 出向端口 `EPN 68..71`（`0x44..0x47`） | 发送 64-bit `SCHEDULE_REQUEST`；接收 128-bit `SCHEDULE_RESPOND` | **CPU 统一报文接收出口**：当 `TMU` 的 `EPN 68..71` 非空并触发 `TMU_IRNCR.EPFC0..3`（bits 8..11）中断时，CPU 通过 `OCTRLC` 请求调度并获取 `HLSA..TLSA`，随后直接从 `SSB0` 读取报文 |
 | `ICTRLC0` | `0x1D461000` | `IQM` 入向队列 `Q4` (`CPU_US`) | 发送 128-bit `ENQUEUE_REQUEST` (`HLSA`, `TLSA`, `PLEN`, `GPIX`) | **上行入向流水线注入（经过 SCE）**：将 CPU 发出的报文（如 `host` 接口 WAN 报文）送入 `IQM Q4`，使其完整经历 `SCE` 的上行 VLAN 转换、ACL 与 T-CONT 队列映射 |
 | `ICTRLC1` | `0x1D461100` | `IQM` 入向队列 `Q8` (`CPU_DS`) | 发送 128-bit `ENQUEUE_REQUEST` (`PDUT=0` 以太网或 `PDUT=7` `CMD`) | **下行入向流水线注入与 PE 表访问**：1. 模拟从 GPON 侧注入下行以太网帧并交由 `SCE` 分类转发至 UNI；2. 发送 `PDUT = 7`（`GPIX = 0xFF`）的内部命令帧读写 `PE`/`COP` 硬件表 |
-| `LINK0` | `0x1D450000` | `TMU` 任意出向队列 `QID 0..255` | 发送 128-bit `DELIVER_REQUEST` (`IPN=7`, `QID`, `HLSA`, `TLSA`, `PLEN`, `GPIX`, `REQ_C=1<<29`) | **出向队列直接注入（绕过 SCE）**：跳过 `IQM` 与 `SCE` 分类引擎，直接将构造好的报文（如 OMCI 上行响应、`lct0..3` 本地管理帧、环路检测帧）压入指定的 `TMU` 出向队列 `QID` |
-| `LINK1` | `0x1D450100` | `IQM` 入向队列 `Q7` (`OMCI`) | 读取 14 或 18 个 32-bit 字 | **OMCI 入向直读通道**：直接从 `DISP`/`IQM` 读取下行 48 字节基准 OMCI 消息或描述符 |
+| `LINK0` | `0x1D600200` | `TMU` 任意出向队列 `QID 0..255` | 发送 128-bit `DELIVER_REQUEST` (`IPN=7`, `QID`, `HLSA`, `TLSA`, `PLEN`, `GPIX`, `REQ_C=1<<29`) | **出向队列直接注入（绕过 SCE）**：跳过 `IQM` 与 `SCE` 分类引擎，直接将构造好的报文（如 OMCI 上行响应、`lct0..3` 本地管理帧、环路检测帧）压入指定的 `TMU` 出向队列 `QID` |
+| `LINK1` | `0x1D600300` | `IQM` 入向队列 `Q7` (`OMCI`) | 读取 14 或 18 个 32-bit 字 | **OMCI 入向直读通道**：直接从 `DISP`/`IQM` 读取下行 48 字节基准 OMCI 消息或描述符 |
 
 ### 3.2 4 个 CPU 出向端口（`EPN 68..71`）与 8 个逻辑网络端口映射
 
@@ -256,9 +256,8 @@ flowchart TD
 
 ### 3.4 CPU 监听、抓包（Traffic Tap）与原始注入的四种工作模式
 
-1. **无损协议镜像（`EXCEPTION_TABLE` ID 78 双掩码模式）**：
-   - 每个桥接端口关联一个 `exception_profile`（`0..7`），对应 `PE` 本地 `EXCEPTION_TABLE` 中的 64-bit 表项（32-bit `forward_mask` + 32-bit `cpu_mask`）。
-   - 对任意协议位（IGMP、MLD、ARP、DHCPv4/v6、PPPoE、802.1X、BPDU、CFM 或 8 个自定义 EtherType），将对应位在 `forward_mask` 与 `cpu_mask` 中**同时置 `1`**，即可令 `MERGE` 在维持线速硬件转发的同时，零拷贝复制一份描述符发往 `EPN 70`（由 `exc` 与 `dbg` 接收），实现特定控制协议的旁路监听。
+1. **协议异常与旁路监听**：
+   - `EXCEPTION_TABLE` 的两个字分别是出向、入向异常掩码。镜像由 `REDIRECTION_TABLE` 中的 `snooping_enable` 与目标队列控制，详见 [异常处理](04_vlan_and_qos_processing.md)。开启镜像会增加 CPU 路径负载；“无损”与线速需要运行验证。
 2. **基于 4-Lane ACL 的精准业务流抓包（Flow Mirroring / Trapping）**：
    - 在 `COP5`/`COP2`/`COP3`/`COP0` 的 128 条 256-bit 三态 ACL 表中写入匹配规则（可匹配任意源/目的 IP、四层端口、MAC、VID 或入向 GEM Port `GPIX`），在动作字（`Word 6`）中置位异常捕获动作，即可将线上特定用户或特定 GEM 端口的流量实时镜像或重定向至 `EPN 70`。
 3. **UNI 端口混杂模式抓包（Promiscuous Mode）**：
@@ -274,12 +273,12 @@ flowchart TD
 
 ## 4. CPU / Linux 接口与以太网 PHY、VLAN 标签及 LCT 管理接口的交互
 
-在 SFP GPON Stick（如 MA5671A）或单端口 ONU 中，物理上仅有一个以太网 UNI 接口（经 `SGMII` 或片上 `GPHY0` 连接外部交换机或路由器）。该物理接口必须同时承载**透明桥接的 GPON 宽带业务流**与**终结在 ONU 本地 Linux 系统的 `lct0` 管理流量**。
+在 SFP GPON Stick（如 MA5671A）或单端口 ONU 中，物理上仅有一个以太网 UNI 接口（在 MA5671A 上经 SFP 高速串行接口连接宿主；片上 GPHY 是 SoC 的另一种接口能力）。该物理接口必须同时承载**透明桥接的 GPON 宽带业务流**与**终结在 ONU 本地 Linux 系统的 `lct0` 管理流量**。
 
 ```mermaid
 flowchart TD
     subgraph EXT_HOST["外部交换机 / 宿主路由器"]
-        PHY_LINK["SGMII / GPHY0 物理以太网链路"]
+        PHY_LINK["SFP 高速串行以太网链路"]
     end
 
     subgraph EIM_MAC["EIM 以太网接口与 MAC 0x1D800000"]
@@ -335,3 +334,9 @@ flowchart TD
 2. **双端载波状态（Carrier Status）硬件同步**：
    - **UNI 侧（`lct0`–`lct3`）**：链路状态轮询机检测到 `EIM` MAC / `GPHY` / `SGMII` 端口的 Link Up/Down 或速率/双工变化时，一方面向用户态队列压入 `ONU_EVENT_LINK_STATE_CHANGE`（事件码 `0x0D`），另一方面调用 `onu_net_status_uni()` 触发 `lct0` 的 `link_change` 回调，实时切换 `netif_carrier_on(lct0)` 与 `netif_carrier_off(lct0)`；发送函数 `net_pdu_write()` 在写入 `SSB0` 前亦会调用 `net_is_port_up()` 检查 MAC 链路状态。
    - **ANI 侧（`host` 与 `dbc`）**：当 GPON PLOAM 状态机进入或退出 `O5 (Operation)` 正常工作状态时，触发 `onu_net_status_ani()` 同步更新 `host` 与 `dbc` 网络接口的载波状态。
+
+## 本地依据与适用范围
+
+`bsp/modules/onu/drv_onu_net.c`、`drv_onu_ll_ssb.c`、`drv_onu_reg_base.h` 以及 `include/drv_onu_gpe_tables.h`。CPU 驱动路径不等于全部流量必须经过 CPU；捕获流量及管理 VLAN 行为取决于配置。
+
+上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

@@ -1,12 +1,12 @@
 # 8.3 GPE 表接口与 FID 转发
 
-GPE（GPON Packet Engine）采用双域硬件表架构支撑线速报文解析与转发：定长配置属性表镜像存储在 6 颗 `PE`（`PE0`–`PE5`，`0x1D610000`–`0x1D660000`）各自的片上数据 RAM 中，供硬件线程单周期直接寻址；流表、哈希表、规则表与计数器表存储在 6 个表搜索协处理器功能块（`COP0 = FID`、`COP1 = FWD`、`COP2 = TAG`、`COP3 = TBL`、`COP4 = MSF`、`COP5 = EXT`）的专用表 SRAM 中，由协处理器微码或硬连线表引擎执行哈希查找、单链表遍历、三态掩码匹配或原子计数。各功能块的完整表存储器布局与表项位域见 [5.5 SCE 硬件功能块详解](../05_coprocessors/05_sce_function_blocks.md)，协处理器微码的逐行指令实现见 [5.8 TSE 微码固件反汇编逐行详解](../05_coprocessors/08_tse_firmware_disassembly.md)。
+GPE（GPON Packet Engine）采用双域硬件表架构支撑线速报文解析与转发：定长配置属性表镜像存储在 6 颗 `PE`（`PE0`–`PE5`，`0x1D610000`–`0x1D660000`）各自的片上数据 RAM 中，供硬件线程直接寻址；流表、哈希表、规则表与计数器表存储在 6 个表搜索协处理器功能块（`COP0 = FID`、`COP1 = FWD`、`COP2 = TAG`、`COP3 = TBL`、`COP4 = MSF`、`COP5 = EXT`）的专用表 SRAM 中，由协处理器微码或硬连线表引擎执行哈希查找、单链表遍历、三态掩码匹配或原子计数。各功能块的完整表存储器布局与表项位域见 [5.5 SCE 硬件功能块详解](../05_coprocessors/05_sce_function_blocks.md)，协处理器微码的逐行指令实现见 [5.8 TSE 微码固件反汇编逐行详解](../05_coprocessors/08_tse_firmware_disassembly.md)。
 
 ```mermaid
 flowchart TD
     HOST["主控配置通道"] -->|HOST 邮箱广播写入 PE0..PE5| PE_RAM["PE 本地数据 RAM 表 ID 64..79"]
     HOST -->|LINK1 / LINK2 协处理器命令帧| COP_BUS["SCE 内部 COP 命令与响应总线"]
-    PE_THREAD["PE0..PE5 48 路硬件线程"] -->|单周期本地读取| PE_RAM
+    PE_THREAD["PE0..PE5 48 路硬件线程"] -->|本地读取| PE_RAM
     PE_THREAD <-->|LINK0 发起查表与接收响应| COP_BUS
     COP_BUS --> COP0["COP0 FID 转发域分配与 EtherType / ACL Lane 3 ID 0..7"]
     COP_BUS --> COP1["COP1 FWD 二层 MAC / IPv4 短转发与学习老化 ID 8..15"]
@@ -24,8 +24,8 @@ GPE 将全部硬件表统一编址在 7-bit 全局 `Table ID`（`0`–`79`）空
 
 | 存储域 | 全局 Table ID 范围 | 硬件寻址译码 | 物理位置与访问机制 |
 | --- | --- | --- | --- |
-| **COP 协处理器表** | `0`–`63` | `cop_id = id >> 3`<br/>`tbl_id = id & 0x7` | 位于 `COP0`–`COP5` 专用表 SRAM（每颗 COP `2048 × 32-bit`）。通过 `LINK0`（PE 线程）或 `LINK1`/`LINK2`（主控）发送 `LINKC1` 原语（`READ`、`WRITE`、`ADD`、`REMOVE`、`SEARCH`、`SEARCHR`、`SEARCHW`、`COUNT`、`EXEC`）访问 |
-| **PE 本地镜像表** | `64`–`79` | `pe_tbl_idx = id - 64` | 位于 `PE0`–`PE5` 的 12 KiB 本地数据 RAM。转发线程单周期直接读取；主控通过 `HOST[1]`–`HOST[9]` 邮箱寄存器配合 `PCTRL.ISIG` 信号以 `pe_mask = 0x3F` 广播写入全部 6 颗 `PE` |
+| **COP 协处理器表** | `0`–`63` | `cop_id = id >> 3`<br/>`tbl_id = id & 0x7` | 位于 `COP0`–`COP5` 专用表 SRAM（各功能块容量不能由单一 8 KiB 假设推断）。通过 `LINK0`（PE 线程）或 `LINK1`/`LINK2`（主控）发送 `LINKC1` 原语（`READ`、`WRITE`、`ADD`、`REMOVE`、`SEARCH`、`SEARCHR`、`SEARCHW`、`COUNT`、`EXEC`）访问 |
+| **PE 本地镜像表** | `64`–`79` | `pe_tbl_idx = id - 64` | 位于 `PE0`–`PE5` 的 12 KiB 本地数据 RAM。转发线程直接读取；主控通过 `HOST[1]`–`HOST[9]` 邮箱寄存器配合 `PCTRL.ISIG` 信号以 `pe_mask = 0x3F` 广播写入全部 6 颗 `PE` |
 
 ### 1.1 数据通路转发查表总览
 
@@ -67,38 +67,21 @@ GPE 将全部硬件表统一编址在 7-bit 全局 `Table ID`（`0`–`79`）空
 
 `BRIDGE_PORT_TABLE`（ID 65）在每颗 `PE` 本地数据 RAM 中包含 88 个表项（索引 `0`–`87`），每个表项占 128 位（4 个 32 位字 `Word 0`–`Word 3`）。无论是 UNI 物理端口、802.1p P-Mapper 还是单播/组播 GEM 端口，均通过分配独立的 `Bridge Port Index` 接入二层桥接矩阵。
 
-### 2.1 128-bit 表项位域定义
+### 2.1 本地大端结构中的字段布局
 
-| 32 位字 | 位域范围 | 字段名称 | 硬件功能说明 |
-| --- | --- | --- | --- |
-| `Word 0` | `[31:16]` | `learning_limit` | 端口学习限制参考值（同步写入 `COP1` `LEARNING_LIMITATION_TABLE` ID 11） |
-| `Word 0` | `[15:10]` | `bridge_index` | 所属虚拟网桥实例编号（关联 `BRIDGE_TABLE` ID 76） |
-| `Word 0` | `[9:8]` | `tp_type` | 终端点类型：`0` = UNI 端口，`1` = GEM 端口，`2` = 802.1p P-Mapper，`3` = IP Host |
-| `Word 0` | `[7:0]` | `ext_vlan_idx` | 关联的 `EXTENDED_VLAN_TABLE`（ID 41）入口索引 |
-| `Word 1` | `[31:24]` | `us_meter_id` | 入向流量监管计量器索引（指向 `COP14` `TBM` 桶 `0`–`511`） |
-| `Word 1` | `[23:16]` | `ds_meter_id` | 出向流量监管计量器索引 |
-| `Word 1` | `[15:8]` | `tag_filter_idx` | 关联的 `TAGGING_FILTER_TABLE`（ID 17）入口索引 |
-| `Word 1` | `[6:0]` | `egress_port_idx` | 出向目标索引：根据 `tp_type` 指向 `GPIX`、`PMAPPER_TABLE` 索引或 UNI 端口号 |
-| `Word 2` | `[31:24]` | `exception_profile` | 协议捕获与异常报文处理模板编号（指向 `EXCEPTION_TABLE` ID 78） |
-| `Word 2` | `[22:16]` | `ingress_port_idx` | 入向源端口索引 |
-| `Word 2` | `[15:0]` | `learned_cnt` | 状态与辅助计数字段 |
-| `Word 3` | `[31:0]` | `ctrl_flags` | 硬件转发控制位与表项 `valid` 位（见下表） |
+以下从 `bsp/modules/onu/include/drv_onu_gpe_tables.h:struct gpe_bridge_port_table` 的大端分支读取，适用该 3.10 基线表 ABI；不能把后续移植新增字段混入原固件布局。
 
-`Word 3` 中的转发控制位定义如下：
+| 字 | 位域 | 字段 |
+| --- | --- | --- |
+| Word 0 | 31；9:8；7:0 | `valid`；`tp_type`；`tp_pointer` |
+| Word 1 | 28:26；25:16；15:7；6:0 | `dscp_table_pointer`；`egress_filter_mask`；`meter_id_egress`；`tagging_filter_egress` |
+| Word 2 | 31:23；22:16；15:8；7:0 | `meter_id_ingress`；`tagging_filter_ingress`；`da_filter_pointer`；`sa_filter_pointer` |
+| Word 3 | 30:28；27:25；24:23；22:21 | 出/入向颜色标记；DA/SA 过滤模式 |
+| Word 3 | 20:19；18:16；15:12 | `port_state`；`bridge_index`；`forwarding_method` |
+| Word 3 | 11；10；9；8 | 端口锁定；IPv6 未知组播泛洪禁用；出向 meter 使能；本地交换使能 |
+| Word 3 | 7；6；5；4；3；2；1；0 | 出向无标签丢弃；出向标签过滤；入向 meter；未知组播/未知单播泛洪禁用；入向无标签丢弃；入向标签过滤；学习使能 |
 
-| 位名称 | 硬件行为说明 |
-| --- | --- |
-| `ena_ing_ext_vlan` / `ena_egr_ext_vlan` | 使能入向 / 出向 `COP5` Extended VLAN 规则查找与标签改写 |
-| `ena_ing_vlan_filter` / `ena_egr_vlan_filter` | 使能入向 / 出向 `COP2` VLAN Tagging Filter 过滤 |
-| `ena_src_mac_learning` | 使能 `COP1` 对进入该端口的报文执行源 MAC 自动学习 |
-| `ena_learning_limit` | 使能 `COP1` `LEARNING_LIMITATION_TABLE` 学习数量上限检查 |
-| `ena_port_lock` | 端口锁定使能：源 MAC 已在其他桥接端口学习到时，禁止迁移并丢弃报文 |
-| `ena_unknown_uc_flood` | 允许未知单播报文向该桥接端口泛洪 |
-| `ena_unknown_mc_flood` | 允许未注册组播报文向该桥接端口泛洪 |
-| `ena_broadcast_flood` | 允许广播报文向该桥接端口泛洪 |
-| `ena_ani_side` | 标识该桥接端口位于 GPON ANI 侧（`1`）或 UNI 侧（`0`），用于水平分割隔离 |
-| `ena_us_policer` / `ena_ds_policer` | 使能入向 / 出向 `COP14` `TBM` 硬件令牌桶监管 |
-| `ena_mac_bridge` | 使能二层 MAC 桥接查表；清零时跳过 `COP1` 查表按点对点（Cross-Connect）直通转发 |
+此前将 `learning_limit` 放在 Word 0、将 `exception_profile/ext_vlan_idx` 放在本表的布局没有该结构依据，已移除。异常模板的方向掩码与重定向动作见 [VLAN 与异常处理](04_vlan_and_qos_processing.md)。
 
 ---
 
@@ -143,16 +126,22 @@ flowchart TD
 
 `CONSTANTS_TABLE`（ID 64）驻留在每颗 `PE` 本地数据 RAM 中，共 51 个 32 位字（行索引 `0`–`50`），提供报文解析微码所需的协议常量与默认参数：
 
-| 字节偏移 | 表行号 | 字段名称 | 缺省值与硬件说明 |
-| --- | --- | --- | --- |
-| `0x00` | Row 0 | `default_outer_tpid_a` / `b` | 外层 S-Tag 识别 TPID 组 1（如 `0x88A8`、`0x8100`） |
-| `0x04` | Row 1 | `default_outer_tpid_c` / `d` | 外层 S-Tag 识别 TPID 组 2（如 `0x9100`、`0x9200`） |
-| `0x08` | Row 2 | `default_inner_tpid_a` / `b` | 内层 C-Tag 识别 TPID 组 1（缺省 `0x8100`） |
-| `0x0C` | Row 3 | `default_inner_tpid_c` / `d` | 内层 C-Tag 识别 TPID 组 2 |
-| `0x10` | Row 4 `[11:0]` | `default_vid` | 无标签帧内部默认分配的 VID |
-| `0x14` | Row 5 `[13:0]` | `packet_len_limit` | 转发引擎允许的最大二层帧长度阈值 |
-| `0x1C` | Row 7 `[15:0]` | `pppoe_session_ethertype` | PPPoE 会话阶段协议号（`0x8864`） |
-| `0x3C` | Row 15 `[8:0]` | `ani_exception_meter_id` | ANI 侧上送 CPU 异常报文绑定的共享 `TBM` 计量器 ID |
-| `0x40` | Row 16 `[0]` | `ani_exception_meter_en` | ANI 侧异常流量硬件限速使能位 |
-| `0x44`–`0x50` | Row 17–20 | `local_mac_addr` | 本机管理接口（IP Host / LCT）48-bit MAC 地址及匹配掩码 |
-| `0x60` | Row 24 | `fwd_aging_trig_mantissa` | `COP1` 二层动态 MAC 表老化周期尾数与指数配置 |
+| Row | 符号 | 用途 |
+| --- | --- | --- |
+| 0 | `ONU_GPE_CONST_PACKET_ENABLE` | 固件报文处理使能 |
+| 1 / 2 / 3 | `DEFAULT_FID / VID / DEFAULT_DSCP` | 默认 FID、内外 VID、DSCP |
+| 5 | `FWD_TABLESIZE` | 老化使用的转发表大小 |
+| 6 / 7 | `TPID_CD / TPID_AB` | 两组 TPID |
+| 9 | `ADDED_LATENCY` | 延迟循环预装载 |
+| 11 / 12 | `LOCALMAC_ADRH / LOCALMAC_ADRL` | 本地 CPU MAC 高/低部分 |
+| 13 | `ANI_EXCEPTION_METER` | bits 8:0 是桶索引（最低位应为 0），bit 9 是使能 |
+| 14 / 15 / 16 | `ANI/UNI/IGMP_EXCEPT_POLICER_THRESHOLD` | 异常 policer 门限 |
+| 17 | `METER_L2_MODE` | 计量模式 |
+
+来源为 `bsp/modules/onu/include/drv_onu_resource_gpe.h` 的 `ONU_GPE_CONST_*`，每项 32 位，字节偏移为 Row × 4。未命名项不能从通用协议功能自行补出寄存器含义。
+
+## 本地依据与适用范围
+
+`bsp/modules/onu/include/drv_onu_gpe_tables.h`、`drv_onu_resource_gpe_tables.h`、`drv_onu_resource_gpe.h`；COP 调用语义另见原始 `tse*.bin`。所有表容量均需区别资源定义、固件初值和运行分配。
+
+上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

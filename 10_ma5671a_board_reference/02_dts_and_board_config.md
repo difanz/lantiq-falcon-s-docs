@@ -1,110 +1,70 @@
 # 10.2 falcon-sfp.dts 与启动脚本
 
-MA5671A 的板级硬件拓扑由内嵌于内核镜像头部的扁平设备树 `falcon-sfp.dts`（`model = "SFP - Lantiq Falcon SFP Stick"`，`compatible = "lantiq,falcon-sfp", "lantiq,falcon"`）定义，并在系统启动阶段由 `/lib/falcon.sh` 及 `/etc/rc.d/S40`–`S99` 初始化脚本按序拉起各硬件子系统。
+本页描述 image0 原厂 Linux 3.10.49 的 DTB 与 OpenWrt 启动链。Linux 7.3 使用移植 DTS、内嵌 initramfs 和 POSIX init 脚本，见 [环境与配套版本](03_board_tuning_and_env.md)。
 
-```mermaid
-flowchart TD
-    BOOT["U-Boot 引导加载器"] -->|解压 uImage 至 0x80002000| KERN_HDR["内核入口与内嵌 OWRTDTB 0x80002408"]
-    KERN_HDR -->|解析 falcon-sfp.dts| BUS_INIT["注册 ICU / SYS1 / EBU SPI NOR / PADCTRL / ASC0 / WDT"]
-    BUS_INIT --> S40_S45["S40 fw_env.sh 与 S45 recover_goi.sh - 生成 /etc/fw_env.config 并恢复光校准表"]
-    S40_S45 --> S60_S61["S60 optic.sh 与 S61 onu.sh - 加载 mod_optic / mod_onu 并装填 GPHY / GPE 微码"]
-    S60_S61 --> S62_S63["S62 sfp_eeprom.sh 与 S63 pin_cfg.sh - 启动 VPE1 A0h/A2h 从机并配置 SFP 引脚"]
-    S62_S63 --> S64_S65["S64 lan.sh 与 S65 lct.sh - 配置 SGMII / HiSGMII 速率与 LCT/Host MAC"]
-    S64_S65 --> S85_S97["S85 omcid.sh / S89 load_ocal.sh / S97 monitomcid - 启动 OMCI 协议栈与 APC 闭环校准守护"]
-```
+## 原厂镜像入口
 
----
+`extracted/images/kernel.bin` 加载地址为 `0x80002000`。文件前 `0x400` 字节是 NOP，`+0x400` 跳往 `0x8000A690`，`+0x408` 为 OWRTDTB:，`+0x410` 是 8160 字节 FDT。kernel_entry 位于文件 `+0x8690`。这是原厂精确布局，不能套用到重编的 7.3 内核；dumps/kernel.elf 是原始镜像的 ELF 包装。
 
-## 1. 内核镜像头部与内嵌设备树 (`OWRTDTB:`) 布局
+## 原厂 DTB 节点
 
-内核镜像加载与入口虚拟地址为 `0x80002000`（物理地址 `0x00002000`）。由于 U-Boot 引导时不单独传递外部 DTB 指针，编译构建阶段将编译后的 8,160 字节二进制设备树（FDT）直接嵌入在内核镜像文件偏移 `0x0410` 处：
+地址由父总线 ranges 与子节点 reg 相加。IRQ 为 DT 单元原值，ASC 顺序依驱动资源索引解释。
 
-| 镜像文件偏移 | KSEG0 虚拟地址 | 长度 | 内容与硬件引导行为 |
+| 节点 | compatible / 状态 | 物理地址 / 大小 | 关键属性 |
 | --- | --- | --- | --- |
-| `0x0000`–`0x03FF` | `0x80002000`–`0x800023FF` | 1024 B | 全零 `nop` 指令滑道（uImage 入口点落在此区间起始处） |
-| `0x0400`–`0x0407` | `0x80002400`–`0x80002407` | 8 B | 跳转指令 `j 0x8000A690` 及分支延迟槽 `nop`，跳过内嵌 DTB 区域 |
-| `0x0408`–`0x040F` | `0x80002408`–`0x8000240F` | 8 B | ASCII 魔数标识 `"OWRTDTB:"`（`4F 57 52 54 44 54 42 3A`） |
-| `0x0410`–`0x23EF` | `0x80002410`–`0x800043EF` | 8160 B | `falcon-sfp.dts` 编译生成的 Flattened Device Tree (`0xD00DFEED`) |
-| `0x8690` | `0x8000A690` | — | `kernel_entry`：初始化栈与 `$gp`，清空 `.bss`，从 `0x80002410` 读取内嵌 FDT 构建设备节点 |
+| CPU | mips,mips34kc | — | CPU/IO/FPI 固定时钟 400/200/100 MHz |
+| memory@0 | memory | `0x0/0x04000000` | 64 MiB |
+| chosen | — | — | bootargs-append 为 console=ttyLTQ0,115200 init=/etc/preinit |
+| ICU | lantiq,icu | `0x1F880200` 起 | 5 段 reg，各 0x28 字节 |
+| watchdog | lantiq,wdt | `0x1F8803F0/0x10` | IO clock |
+| status | lantiq,status-falcon | `0x1E802000/0x80` | 芯片状态 |
+| SYS1 | lantiq,sys1-falcon | `0x1EF00000/0x100` | 时钟控制器 |
+| SYS_ETH | lantiq,syseth-falcon | `0x1DB00000/0x100` | GPIO0/2、PAD0/2 时钟 |
+| SYS_GPE | lantiq,sysgpe-falcon | `0x1D700000/0x100` | GPE 时钟控制器 |
+| ASC0 | lantiq,asc | `0x1E100C00/0x100` | IRQ 104/105/106，line 0 |
+| ASC1 | lantiq,asc，disabled | `0x1E100B00/0x100` | IRQ 112/113/114，line 1 |
+| I2C | lantiq,lantiq-i2c，okay | `0x1E200000/0x10000` | IRQ 18/19/20/21；gpio1 offset 7/8 |
+| GPTC | lantiq,gptc-falcon | `0x1E100E00/0x100` | 原 DT 无 interrupts 属性 |
+| SSC SPI | lantiq,spi-lantiq-ssc，disabled | `0x1E100D00/0x100` | 与启动 NOR 的 sflash 控制器不同 |
+| EBU | lantiq,ebu-falcon | `0x18000000/0x100` | 原厂节点地址 |
+| sflash localbus | lantiq,sflash-falcon | `0x10000000/0x04000000` | 控制器窗口 64 MiB，实际 NOR 16 MiB |
 
----
+完整 PAD/GPIO 表见 [引脚映射](01_pinmux_and_sfp_mapping.md)。I2C 节点虽然有 gpios 属性，compatible 不含 i2c-gpio，不能据此声称自动回退为 GPIO 驱动。
 
-## 2. `falcon-sfp.dts` 总线与外设节点清单
+## NOR 分区
 
-| 设备树路径 | `compatible` 属性 | 物理基址与长度 (`reg`) | 中断号 (`interrupts`) / 核心属性 |
+| 标签 | Flash 偏移 | 大小 | 说明 |
 | --- | --- | --- | --- |
-| `/cpus/cpu@0` | `"mips,mips34kc"` | — | 大端 MIPS 34Kc，支持 VPE0/VPE1 双虚拟处理单元 |
-| `/memory@0` | — | `0x00000000` (`0x04000000`) | 64 MiB DDR2 SDRAM（可由 U-Boot `memsize=` 覆盖） |
-| `/chosen` | — | — | `bootargs = "console=ttyLTQ0,115200 init=/etc/preinit"` |
-| `/clocks/cpu` | `"fixed-clock"` | — | `clock-frequency = <400000000>` (400 MHz) |
-| `/clocks/io` | `"fixed-clock"` | — | `clock-frequency = <200000000>` (200 MHz) |
-| `/clocks/fpi` | `"fixed-clock"` | — | `clock-frequency = <100000000>` (100 MHz) |
-| `/biu@1F800000/icu@80200` | `"lantiq,icu"` | `0x1F880200` (`0xA0`) | 5 组 32 位中断控制器（IM0–IM4），管理 IRQ `8`–`167` |
-| `/biu@1F800000/watchdog@803F0` | `"lantiq,wdt"` | `0x1F8803F0` (`0x10`) | 硬件看门狗定时器 |
-| `/sbs0@1F000000/status@1002000` | `"lantiq,status-falcon"` | `0x1EE00000` (`0x100`) | 芯片 ID、Fuses 与子系统配置状态块 |
-| `/sbs0@1F000000/sys1@100000` | `"lantiq,sys1-falcon"` | `0x1EF00000` (`0x100`) | `SYS1` 时钟门控、复位控制与 CPU0CC 分频 |
-| `/sbs0@1F000000/pad@B01000` | `"lantiq,pad-falcon"` | `0x1DB01000` (`0x100`) | Bank 0 Pad 复用控制器（关联 `gpio0@B01100`，IRQ `114`） |
-| `/sbs0@1F000000/pad@B02000` | `"lantiq,pad-falcon"` | `0x1DB02000` (`0x100`) | Bank 2 Pad 复用控制器（关联 `gpio2@B02100`，IRQ `115`） |
-| `/fpi@1E000000/asc@100C00` | `"lantiq,asc"` | `0x1E100C00` (`0x100`) | `ASC0` 主控制台串口（`ttyLTQ0`），IRQ `104` (TX)、`106` (RX)、`107` (ERR) |
-| `/fpi@1E000000/asc@100B00` | `"lantiq,asc"` | `0x1E100B00` (`0x100`) | `ASC1` 第二串口，IRQ `96` (TX)、`98` (RX)、`99` (ERR) |
-| `/fpi@1E000000/i2c@200000` | `"lantiq,falcon-i2c"`, `"i2c-gpio"` | `0x1E200000` (`0x10000`) | 硬件 I2C 控制器（IRQ `18`..`21`），或回退绑定 `&gpio1 7` (GPIO 39) 与 `&gpio1 8` (GPIO 40) |
-| `/fpi@1E000000/gptu@100A00` | `"lantiq,gptu-falcon"` | `0x1E100A00` (`0x100`) | 通用定时器单元（Timer 1A–3B，IRQ `126`..`131`） |
-| `/fpi@1E000000/pad@800100` | `"lantiq,pad-falcon"` | `0x1E800100` (`0x100`) | Bank 1 Pad 复用控制器（关联 `gpio1@800200`，IRQ `148`），承载 `pinselect-asc0` 与 `pinselect-asc1` |
-| `/fpi@1E000000/pad@800300` | `"lantiq,pad-falcon"` | `0x1E800300` (`0x100`) | Bank 3 Pad 复用控制器（关联 `gpio3@800400`，IRQ `149`） |
-| `/sbs2@1D000000/sys_eth@800000` | `"lantiq,sys-eth-falcon"` | `0x1D800000` (`0x100`) | 以太网子系统时钟与复位控制（关联 `pad@800100` 与 `gpio4@800200`，IRQ `72`） |
-| `/sbs2@1D000000/sys_gpe@700000` | `"lantiq,sys-gpe-falcon"` | `0x1D700000` (`0x100`) | GPE 数据包引擎 625 MHz 时钟门控与硬件块复位控制器 |
+| uboot | `0x000000` | `0x040000` | DT 标记只读；不在 image0 dump 中 |
+| uboot_env | `0x040000` | `0x080000` | 不在 image0 dump 中 |
+| image0 | `0x0C0000` | `0x740000` | 本次 dump，7424 KiB |
+| image1 | `0x800000` | `0x800000` | 不在本次 dump 中，8192 KiB |
 
----
+启动时镜像解析器还会注册 kernel/rootfs/rootfs_data 子分区，MTD 编号会随注册顺序变化。mtd0..3 不是跨内核可靠标识，应按标签和 geometry 识别。
 
-## 3. SPI NOR Flash (`localbus@10000000`) 分区表
+## 原厂脚本链
 
-`localbus@10000000` 挂载 EBU 串行闪存控制器（物理地址 `0x10000000` 映射 16 MiB Flash 窗口，`0x1E102000` 为 EBU 控制寄存器），连接 Spansion S25FL129P（`spansion,s25fl129p0`，最大时钟 80 MHz，开启 `m25p,fast-read`），固定划分为 4 个 MTD 分区：
+S 序号来自 START；实际启用还取决于 rc.d 链接。完成脚本调用不等于硬件初始化成功。
 
-| MTD 设备 | 分区名称 (`label`) | 起始偏移 | 分区大小 | 用途说明 |
-| --- | --- | --- | --- | --- |
-| `/dev/mtd0` | `uboot` | `0x000000` | `0x040000` (256 KiB) | U-Boot 引导加载程序 |
-| `/dev/mtd1` | `uboot_env` | `0x040000` | `0x080000` (512 KiB) | 主备双冗余 U-Boot 环境变量区（主扇区偏移 `0x0`，备扇区偏移 `0x40000`，扇区大小 `64 KiB`） |
-| `/dev/mtd2` | `image0` | `0x0C0000` | `0x740000` (7,424 KiB) | 主固件槽位（Slot 0，含 64B uImage 头、LZMA 内核、SquashFS 只读根文件系统与 JFFS2 `rootfs_data` 读写层） |
-| `/dev/mtd3` | `image1` | `0x800000` | `0x800000` (8,192 KiB) | 备固件槽位（Slot 1，供 OMCI ME 7 双镜像平滑升级切换） |
-
----
-
-## 4. `/lib/falcon.sh` 板级识别与 MAC 派生规则
-
-`/lib/falcon.sh` 提供供所有初始化脚本调用的板级参数读取函数：
-
-1. **板型与端口识别**：
-   - `falcon_board_name()`：从 `/proc/cpuinfo` 读取 `machine` 字段并归一化，返回 `"SFP"`（对应 `SFP - Lantiq Falcon SFP Stick`）。
-   - `falcon_get_number_of_lan_ports()`：根据 `SFP` 板型返回 `1`（仅启用 1 个 SerDes UNI 端口）。
-   - `falcon_default_lct_get()`：返回默认本地维护终端接口名 `"lct0"`。
-2. **基准 MAC 与 4 路接口 MAC 派生 (`falcon_mac_get`)**：
-   - `falcon_base_mac_get()` 从 `/proc/cmdline` 提取 `ethaddr=` 参数（若未指定则回退为 `ac:9a:96:00:00:00`）。
-   - `falcon_mac_get <type>` 将基准 MAC 的末字节加偏移量生成各虚拟接口的独立 MAC 地址：
-
-| 接口类型参数 (`<type>`) | 末字节累加偏移 | 绑定的网络接口与硬件用途 |
+| 序号 | 脚本 | 职责 |
 | --- | --- | --- |
-| `lct*` / `lan` / `lan0` | `+0` | `lct0` 本地维护接口及 UNI 端口 0 PAUSE 流控源 MAC |
-| `lan1` | `+1` | 预留第二 LAN 端口 MAC |
-| `host` | `+2` | `host` 接口（对应 OMCI ME 134 `IP Host Config Data`，写入 `PE` `CONSTANTS` 表） |
-| `wan` | `+3` | WAN 侧管理接口 MAC |
+| 40 | fw_env.sh | 从 /proc/mtd 生成环境配置，加载 i2c-dev 与 GPIO37/38 软件 I2C |
+| 45 | recover_goi.sh | 从 env goi_config 恢复校准归档 |
+| 60 | optic.sh | 加载光驱动，建立设备节点 |
+| 61 | onu.sh | PLOAM/GTC、GPHY/GPE 微码和共享缓冲初始化；按校准状态开 GTC watchdog |
+| 62 | sfp_eeprom.sh | SFP bank 内容、地址、写保护和 DDM 进程 |
+| 63 | pin_cfg.sh | TX_Disable 与 ONU LOS 配置，不直接写 sysfs pinselect |
+| 64 | lan.sh | SerDes、EIM、UNI 端口 |
+| 65 | lct.sh | mod_onu_netdev、本地维护网络 |
+| 85 | omcid.sh | MIB、OMCC version、iop mask；参数为 -d3 -p… -o… -i… -g… -l/tmp/log/debug |
+| 87 | load_dti_agent.sh | 仅 env gDtiaGentEnable=true 时启动 gpon_dti_agent -p9000 |
+| 89 | load_ocal.sh | 光校准用户态 |
+| 97 | monitomcid | OMCI 进程监控 |
 
----
+omcid.sh 自身不创建 /tmp/omci_pipe，也不直接向 omcid 传递 olt_type。不能把程序内部或其他脚本的行为记成它的命令行。
 
-## 5. GPON 启动脚本链路 (`/etc/rc.d/S40`–`S99`)
+## 板型与 MAC 派生
 
-系统按以下启动序号依次拉起驱动模块与守护进程：
+`extracted/rootfs/lib/falcon.sh` 优先读 cmdline boardname，再读 cpuinfo machine，最后读 DT model。SFP 返回一个 LAN 端口，LCT 通常为 lct0，但 .hgu/.fttdp 配置会改变结果。
 
-| 启动序号与脚本路径 | 加载的模块 / 调用的工具 | 核心板级初始化动作 |
-| --- | --- | --- |
-| `S40` `/etc/init.d/fw_env.sh` | `i2c-gpio-custom` | 检测 `/dev/mtd1`（`uboot_env`）并生成 `/etc/fw_env.config`；执行 `insmod i2c-gpio-custom bus0=0,37,38,5` 注册 GPIO 37/38 软件 I2C 总线 |
-| `S45` `/etc/init.d/recover_goi.sh` | `fw_printenv`, `uudecode`, `tar` | 若 `/etc/optic/.goi_recovered` 不存在且环境变量 `goi_config` 非空，将 `goi_config` 中的 `@` 替换为换行符后经 `uudecode` 与 `tar xz -C /` 解压恢复 `/etc/optic/` 校准表 |
-| `S60` `/etc/init.d/optic.sh` | `mod_optic.ko` | 加载 `mod_optic.ko`，创建 `/dev/optic0`（主设备号 249）与符号链接 `/dev/optic` |
-| `S61` `/etc/init.d/onu.sh` | `mod_onu.ko`, `onu` | 加载 `mod_onu.ko`，创建 `/dev/onu0` 与 `/dev/onu`；读取 `nSerial`、`nPassword`、`nDyingGaspEnable`、`olt_type`、`ploam_emergency_stop_state`，依次调用 `onu` 执行 `ploam_init`、`gtcsns`、`gtccs`、`gtci`、`langfd "phy11g.bin"`、`gpei`、`gpe_shared_buffer_cfg_set`；若 `goi_calibrated >= 1` 则执行 `onu gtc_watchdog_set 1` |
-| `S62` `/etc/init.d/sfp_eeprom.sh` | `mod_sfp_i2c.ko`, `sfp_i2c` | 加载 `mod_sfp_i2c.ko`（启动 VPE1 `sfp_i2c_vpe.bin`），创建 `/dev/sfp_eeprom0`（`0xA0`）与 `/dev/sfp_eeprom1`（`0xA2`）；写入 SFF-8472 厂商/部件号/SN/速率字段并使能 VPE1 处理，最后启动 `sfp_i2c -a` 后台 DDM 监控 |
-| `S63` `/etc/init.d/pin_cfg.sh` | `optic` | 根据 U-Boot `asc0` 变量切换 `/sys/devices/1e800100.pad/pinselect-asc0/state`，调用 `optic optic_pin_cfg_set` 配置 `tx_fault`/`tx_disable`/`los`/`mod_def` |
-| `S64` `/etc/init.d/lan.sh` | `onu` | 导出 GPIO 7 与 GPIO 8；读取 `sgmii_mode`（`1`..`5`）转换为 `lanpcs` 端口模式参数，初始化 `EIM`、配置 PAUSE 帧 MAC 并启用 UNI 端口 0 |
-| `S65` `/etc/init.d/lct.sh` | `mod_onu_netdev.ko` | 加载虚拟网卡驱动，为 `lct0` 与 `host` 配置派生的 MAC 地址与管理 IP |
-| `S85` `/etc/init.d/omcid.sh` | `omcid` | 创建 `/tmp/omci_pipe`，读取 `mib_file`（缺省 `/etc/mibs/data_1g_8q.ini`）、`omci_iop_mask` 与 `olt_type`，启动 `omcid` 守护进程 |
-| `S87` `/etc/init.d/load_dti_agent.sh` | `gpon_dti_agent` | 启动 DTI 调试代理监听 TCP 端口 `9000` |
-| `S89` `/etc/init.d/load_ocal.sh` | `ocal` | 创建 `/tmp/ocal_pipe`，启动 `ocal` 加载 50B GOI 配置与三张温度查找表，激活 BOSA 双环 APC 与 `DCDC_APD` 温度补偿 |
-| `S97` `/etc/init.d/monitomcid` | 监控脚本 | 后台周期检查 `omcid` 进程存活状态并在异常退出时自动拉起 |
+falcon_base_mac_get() 从 cmdline ethaddr 取基准地址，缺失时用源码固定回退值。falcon_mac_get() 偏移加在 **第 5 个八位组**，第 6 个保持不变：lct*/lan/lan0 +0，lan1 +1，host +2，wan +3。这不是 48 位 MAC 整体加法，亦不处理跨字节进位。

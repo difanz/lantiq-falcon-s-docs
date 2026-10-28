@@ -6,7 +6,7 @@ GPE 的 VLAN 转换、入向流分类（4-Lane ACL）、IPv6 地址压缩与组�
 flowchart TD
     PKT_IN["DISP 分发报文头至 PE 线程"] --> ACL_STAGE["4-Lane 并行 ACL 搜索 COP5 / COP2 / COP3 / COP0"]
     ACL_STAGE -->|正常转发| EXTVLAN_STAGE["COP5 EXT Extended VLAN 规则查找与标签合成"]
-    ACL_STAGE -->|协议捕获 IGMP / MLD / ARP / DHCP| CPU_Q["TMU CPU 出向端口 EPN 64..71"]
+    ACL_STAGE -->|协议捕获 IGMP / MLD / ARP / DHCP| CPU_Q["TMU CPU 出向端口 EPN 68..71"]
     EXTVLAN_STAGE --> FID_STAGE["COP0 FID 桥接域映射"]
     FID_STAGE -->|二层 MAC 或 IPv4| FWD_STAGE["COP1 FWD 短转发哈希查找"]
     FID_STAGE -->|128-bit IPv6 地址| IPV6_RED["COP3 TBL IF_IPV6_REDUCE 压缩为 9-bit 索引"]
@@ -25,14 +25,14 @@ flowchart TD
 `COP5`（`EXT`）处理单标签、双标签（QinQ）及无标签报文的 VLAN 匹配与头部改写，内部维护三张 64 位宽硬件表：`EXTENDED_VLAN_TABLE`（ID 41）、`VLAN_RULE_TABLE`（ID 42）和 `VLAN_TREATMENT_TABLE`（ID 43），由微码 `IF_VLAN_TRANSLATE`（`PC = 0`–`9`）串联执行：
 
 1. **读取端口描述符 (`EXTENDED_VLAN_TABLE`, ID 41, 128 × 64-bit `VARRAY`)**：
-   - 开启 `ena_ing_ext_vlan` 或 `ena_egr_ext_vlan` 的桥接端口通过 `BRIDGE_PORT.ext_vlan_idx` 指定 `EXTENDED_VLAN_TABLE` 索引。
+   - 由端口及 Extended VLAN 配置选择 `EXTENDED_VLAN_TABLE` 索引；不能把未在本地 `gpe_bridge_port_table` 中出现的 `ext_vlan_idx` 当作原 ABI 字段。
    - 微码执行 `searchr 1, 0, 64` 读出该端口允许剥离的最大标签数 `max_tags_to_remove`（`Word 0 [25:24]`）、两套自定义 TPID 值 `inner_tpid_1_value` / `inner_tpid_2_value` 以及规则列表在 `VLAN_RULE_TABLE` 中的起始下标 `rule_table_pointer`（`Word 1 [29:16]`，即 `%data1.48`）。
 2. **自定义协议规则匹配 (`VLAN_RULE_TABLE`, ID 42, 1024 × 64-bit `LIST` / `CUSTOM`)**：
    - 微码将 `rule_table_pointer` 装入 `%index`，执行 `searchr 2, 0, 64`。
    - `COP5` 的 `CUSTOM` 硬件匹配器同时比对入向帧的 96 位标签键（外层 TCI/TPID、内层 TCI/TPID、EtherType、内外层标签存在位）、`EXTENDED_VLAN_TABLE` 的端口自定义 TPID 以及 `CUSTOM0`–`CUSTOM4` 寄存器中的全局 TPID 与协议号（`0x0800` IPv4、`0x8863` PPPoE、`0x0806` ARP、`0x86DD` IPv6），直至命中规则或遇到 `end == 1` 终止。
 3. **读取动作并硬件合成改写指令 (`VLAN_TREATMENT_TABLE`, ID 43, 1024 × 64-bit `VARRAY` + `treat` 指令)**：
    - 命中 `VLAN_RULE_TABLE[k]` 后，微码保持 `%index = k` 不变，执行 `searchr 3, 0, 64` 读出同下标的 `VLAN_TREATMENT_TABLE[k]`。
-   - 随后执行专用指令 `treat`（`0x7810`），由硬件在单周期内根据 `number_of_tags_to_remove`、内外层 PCP/VID/TPID/DEI 生成规则以及入向 DSCP 候选优先级合成 128 位输出指令包返回给 `PE`。
+   - 随后执行专用指令 `treat`（`0x7810`），由硬件根据 `number_of_tags_to_remove`、内外层 PCP/VID/TPID/DEI 生成规则以及入向 DSCP 候选优先级合成 128 位输出指令包返回给 `PE`。
    - `PE` 线程根据返回的 `remove_tags`、`add_outer_tag`、`add_inner_tag` 与新构造的 TCI/TPID，在本地头部缓冲区调整 `HDR_OFF` 与 `HDR_LEN` 完成二层帧头重写。
 
 ---
@@ -42,7 +42,7 @@ flowchart TD
 `COP2`（`TAG`）在桥接转发路径上提供出入向 VLAN 过滤与 VLAN 计量绑定：
 
 1. **`TAGGING_FILTER_TABLE` (`COP2` Table 1, 全局表 ID 17, 128 × 64-bit `VARRAY`)**：
-   - 由 `BRIDGE_PORT.tag_filter_idx` 索引。`Word 0` 包含 `pass_on_match_enable`（bit 19，白名单/黑名单极性）、`tagged_drop_enable`（bit 18）、`tagged_pass_enable`（bit 17）、`untagged_drop_enable`（bit 16）和 16 位 `tci_mask`（bits 15:0）；`Word 1 [29:16]` 包含 `vlan_table_index`。
+   - 分别由 `BRIDGE_PORT.tagging_filter_ingress` / `tagging_filter_egress` 索引。`Word 0` 包含 `pass_on_match_enable`（bit 19，白名单/黑名单极性）、`tagged_drop_enable`（bit 18）、`tagged_pass_enable`（bit 17）、`untagged_drop_enable`（bit 16）和 16 位 `tci_mask`（bits 15:0）；`Word 1 [29:16]` 包含 `vlan_table_index`。
 2. **`tag` 硬件指令与 `VLAN_TABLE` (`COP2` Table 2, 全局表 ID 18, 1024 × 32-bit `LIST`)**：
    - 微码 `IF_TAG_FILTER`（`PC = 0`–`15`）先执行 `tag` 指令（`0x7808`）快速处置无标签帧与无需查表的有标签帧。
    - 当需要比对 VID/TCI 列表时，微码将 `vlan_table_index` 装入 `%index`，将 `tci_mask` 装入 `%key_mask`，执行 `search 2` 扫描 `VLAN_TABLE` 子段，最后通过 `xorn %res1, %data1.19`（`0x6f98`）将列表命中标志与 `pass_on_match_enable` 做同或运算得出最终放行（`1`）或丢弃（`0`）结果。
@@ -70,9 +70,11 @@ SCE 将 128 条 256-bit ACL 规则槽位分布在 4 个独立的协处理器功�
 
 ### 3.3 协议捕获与异常报文上送 (`EXCEPTION_TABLE`, ID 78)
 
-每个 `BRIDGE_PORT` 绑定一个 `exception_profile`（`0`–`7`），索引 `PE` 本地数据 RAM 中的 `EXCEPTION_TABLE`（ID 78，8 × 64-bit）。每项由 32 位 `forward_mask` 与 32 位 `cpu_mask` 组成，为 IGMP、MLD、ARP、DHCPv4/v6、PPPoE Discovery/Session、802.1X EAPOL、STP BPDU、CFM/OAM 以及 `ETHERTYPE_EXCEPTION_TABLE`（ID 79）定义的 8 种自定义 EtherType 分别指定丢弃（`00`）、仅硬件转发（`10`）、仅捕获上送 CPU（`01`）或转发同时镜像至 CPU（`11`）。
+每个异常模板占 64 位。大端目标的 `gpe_exception_table` 明确把 Word 0 定义为 `egress_exception_flag_mask`，Word 1 为 `ingress_exception_flag_mask`；两者是方向掩码，不能解释为 forward/cpu 两个动作位图。
 
-被判定为上送 CPU 的报文由 `PE` 赋予对应的异常原因码并路由至 `TMU` 的 CPU 出向端口（`EPN 64..71`）。对于来自 GPON ANI 侧的异常报文，`PE` 在入队前读取 `CONSTANTS_TABLE`（ID 64）Row 15–16 中的 `ani_exception_meter_id` 与 `ani_exception_meter_en`，调用 `COP14`（`TBM`）实施速率限制。
+异常动作另由 `gpe_redirection_table`（表 ID 73）控制：`redirection_queue_index[7:0]` 选择队列（255 表示丢弃），`snooping_enable[8]` 使异常处理之外仍按原数据流复制/转发；另有 `remove_meta_data_header[9]` 与 `no_exception_policer[10]`。必须结合方向掩码、重定向项及端口配置判断镜像、捕获或丢弃，不能通过“两个掩码同时置 1”配置镜像。来源：`bsp/modules/onu/include/drv_onu_gpe_tables.h` 的上述两种结构。
+
+被判定为上送 CPU 的报文由 `PE` 赋予对应的异常原因码并路由至 `TMU` 的 CPU 出向端口（`EPN 68..71`）。对于来自 GPON ANI 侧的异常报文，`PE` 在入队前读取 `CONSTANTS_TABLE`（ID 64）Row 13 的桶索引 bits 8:0 与使能 bit 9，调用 `COP14`（`TBM`）实施速率限制。
 
 ---
 
@@ -97,6 +99,12 @@ SCE 将 128 条 256-bit ACL 规则槽位分布在 4 个独立的协处理器功�
 ### 4.4 `MERGE` 与 `FSQM` 硬件零拷贝扇出 (`0x1D600600` / `0x1D500000`)
 
 当组播或泛洪报文经过 `COP1`/`COP4` 及 `COP2` 出向过滤后，得出包含 `K`（`K >= 1`）个有效出向端口的位图：
-1. `MERGE`（`0x1D600600`）统计置位端口数量 `K`，通知 `FSQM`（`0x1D500000`）将该报文 `HeadLSA` 段链的引用计数器设置为 `K`。
+1. 多出口可共享净荷段，并通过 FSQM 引用计数管理生命周期。这里不能直接假设 `MERGE` 将引用计数写成任意 `K`：计数字段只有 3 位，超过范围的扇出策略及不同出口头部的独立分配需从 PE 微码进一步确认。
 2. `MERGE` 依次为位图中的每个目标端口生成独立的出向报文描述符（携带各自的出向 `QID` 与出向 VLAN 改写结果），逐个压入 `TMU`（`0x1D404000`）。
-3. 整个扇出过程在 `SSB0`（`0x1F200000`）中仅保留一份报文数据段链；每当一个出向控制器（`OCTRLL0`–`OCTRLL3` 或 `OCTRLG`）读完一个 64 字节段并请求释放时，`FSQM` 将该段的引用计数减 1，直至最后一个副本发送完毕（引用计数归零）时才将该段回收至空闲队列。
+3. 共享净荷可减少复制，但不同出口的 VLAN 头部可能需要独立段；因此不承诺整个报文始终只有一份段链；每当一个出向控制器（`OCTRLL0`–`OCTRLL3` 或 `OCTRLG`）读完一个 64 字节段并请求释放时，`FSQM` 将该段的引用计数减 1，直至最后一个副本发送完毕（引用计数归零）时才将该段回收至空闲队列。
+
+## 本地依据与适用范围
+
+`bsp/modules/onu/include/drv_onu_gpe_tables.h:gpe_exception_table/gpe_redirection_table`、资源表定义及 `tse*.bin`。组播共享段与独立出口头部的实现细节不由概念图自动证明。
+
+上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

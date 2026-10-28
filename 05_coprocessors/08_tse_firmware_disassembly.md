@@ -14,7 +14,7 @@
 | `.export <id>, "<name>", <byte_addr>` | `0xF800` (`INTERFACE`) + `0xE000` (`NAMES`) | 映射为 `EXEC` 命令的入口 PC | 将全局导出函数编号 `<id>`（`1`–`25`）及符号名 `<name>` 绑定到代码段字节偏移 `<byte_addr>`。PE 或主控发起 `EXEC` 命令时，硬件将 `PC` 置为 `<byte_addr> >> 1` |
 | `.custom <idx>, <val32>` | `0xF400`–`0xF41F` | `0x300 + <idx>` (`CUSTOM0`–`CUSTOM7`) | 初始化 `CUSTOM` 匹配模式使用的 8 个 32 位协议比较寄存器。容器默认将 `CUSTOM1`–`CUSTOM4` 设为 `0xFFFF0000`（屏蔽 `ETY1`–`ETY4`），其余清零 |
 | `.table 0, empty` | `0xC000`–`0xC00F` | `0x000`–`0x003` | 表 0 占位记录（4 个 32 位字全 `0`），硬件跳过不写，因为表 0 自身即为 COP 寄存器控制面 |
-| `.table <n>, type=..., func=..., width=..., key=..., mask=..., kmsk=..., size=..., base=..., aux_valid=..., count=..., aux=...` | `0xC010 + (n-1)*0x10` | `0x004 + (n-1)*4` (`TABLEn0`–`TABLEn3`) | 配置当前 COP 物理表 `<n>`（`1`–`6`）的 4 个 32 位硬件控制寄存器：`TABLEn0`（`size[29:16]`、`base[13:0]`）、`TABLEn1`（`kmsk[31:16]`、`mask[10]`、`func[9:8]`、`width[7:6]`、`key[5:3]`、`type[2:0]`）、`TABLEn2`（`aux_valid[31]`、`count[29:16]`、`aux[13:0]`）与 `TABLEn3`（清零） |
+| `.table <n>, type=..., func=..., width=..., key=..., mask=..., kmsk=..., size=..., base=..., aux_valid=..., count=..., aux=...` | `0xC010 + (n-1)*0x10` | `0x004 + (n-1)*4` (`TABLEn0`–`TABLEn3`) | 配置当前 COP 物理表 `<n>`（`1`–`6`）的 4 个 32 位硬件控制寄存器：`TABLEn0`（`DATA_MASK[31:16]`、`KEY_SIZE[10:8]`、`ENTRY_SIZE[7:6]`、`FUNCTION[5:3]`、`TYPE[2:0]`）、`TABLEn1`（`SIZE[31:16]`、`BASE[15:0]`）、`TABLEn2`（`AUX_V[31]`、`ENTRY_COUNTER[25:16]`、`AUX[15:0]`）及第四个零填充字。以寄存器头文件定义为准，不能将反汇编器打印字段名重新排列成另一套硬件布局 |
 | `.code <byte_addr>` | `0x0000`–`0x3FFF` | `0x200 + (<byte_addr> >> 1)` (`CRAM`) | 指示后续 16 位微码指令按顺序装入代码 RAM（`CRAM`），起始指令地址 `PC = <byte_addr> >> 1` |
 | `.code_tail <byte_addr>` | `0x0000`–`0x3FFF` | `0x200 + (<byte_addr> >> 1)` (`CRAM`) | 指示位于 `.table` 记录之后的一条尾部代码记录（仅 `tse1.s` 使用，在表配置完成后将 `PC = 0` 的跳转指令写入 `CRAM[0]`） |
 
@@ -24,7 +24,7 @@
 
 ### 2.1 `tse0.s` 完整反汇编源码
 
-```asm
+```text
 ; =============================================================================
 ; Disassembled by cop-disas from: tse0.bin
 ; Records: 31 (recorded: 31) | End PC: 0 | Instructions: 40
@@ -197,7 +197,7 @@ IF_ACL_SEARCH_3:
 | 源码行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
 | --- | --- | --- | --- | --- |
 | `85` | `32` (`0x20`) | `0x7340` | `mov %data2, %data1` | 将输入 `%data1` 备份至 `%data2`，防止后续 `read` 256 位掩码项时冲掉输入参数 |
-| `86` | `33` (`0x21`) | `0x7718` | `mov %aux, %data1.16` | `dst=7 (%aux)`, `src=0 (%data1.16)`, `sel=3`。将 `%data1[29:16]` 中的规则搜索起始索引暂存至辅助寄存器 `%aux` |
+| `86` | `33` (`0x21`) | `0x7718` | `mov %aux, %data1.16` | `dst=7 (%aux)`, `src=0 (%data1.16)`, `sel=3`。推测为暂存规则起始索引；`0x7718` 在原打印器中无操作数名称，`%data1[29:16]` 的具体切片未证实 |
 | `87` | `34` (`0x22`) | `0x4000` | `mov %index, 0` | `op=0x08 (mov_imm index)`, `imm=0`。将表索引 `%index` 清零，指向 ACL 表的第 0 号槽位（全局掩码槽位） |
 | `88` | `35` (`0x23`) | `0x81a0` | `read 4, 0, 256` | `op=0x10 (read)`, `len=3 (256b)`, `off=0`, `table=4`。从 `Table 4`（`GENERIC` 视图）索引 `0` 读取 256 位初始掩码项至 `%data1` / 内部三态掩码锁存器 |
 | `89` | `36` (`0x24`) | `0x7260` | `mov %data1, %data2` | 从 `%data2` 恢复原始输入数据至 `%data1` |
@@ -211,7 +211,7 @@ IF_ACL_SEARCH_3:
 
 ### 3.1 `tse1.s` 完整反汇编源码
 
-```asm
+```text
 ; =============================================================================
 ; Disassembled by cop-disas from: tse1.bin
 ; Records: 37 (recorded: 37) | End PC: 0 | Instructions: 85
@@ -503,7 +503,7 @@ IF_FWD_AGE:
 
 ### 4.1 `tse2.s` 完整反汇编源码
 
-```asm
+```text
 ; =============================================================================
 ; Disassembled by cop-disas from: tse2.bin
 ; Records: 25 (recorded: 25) | End PC: 0 | Instructions: 24
@@ -622,7 +622,7 @@ IF_ACL_SEARCH_1:
 
 ### 5.1 `tse3.s` 完整反汇编源码
 
-```asm
+```text
 ; =============================================================================
 ; Disassembled by cop-disas from: tse3.bin
 ; Records: 27 (recorded: 27) | End PC: 0 | Instructions: 18
@@ -732,7 +732,7 @@ IF_ACL_SEARCH_2:
 
 ### 6.1 `tse4.s` 完整反汇编源码
 
-```asm
+```text
 ; =============================================================================
 ; Disassembled by cop-disas from: tse4.bin
 ; Records: 19 (recorded: 19) | End PC: 0 | Instructions: 0
@@ -787,7 +787,7 @@ IF_ACL_SEARCH_2:
 
 ### 7.1 `tse5.s` 完整反汇编源码
 
-```asm
+```text
 ; =============================================================================
 ; Disassembled by cop-disas from: tse5.bin
 ; Records: 27 (recorded: 27) | End PC: 0 | Instructions: 18
@@ -881,6 +881,14 @@ IF_ACL_SEARCH_0:
 | `48` | `5` (`0x05`) | `0xa090` | `searchr 2, 0, 64` | 在 `Table 2`（`VLAN_RULE_TABLE`，`func = CUSTOM`）中从 `%index` 起顺序扫描规则列表。硬件 `CUSTOM` 比较器综合比对 96 位入向帧标签键 `%key`、`%data2` 中的自定义 TPID 以及 `CUSTOM0`–`CUSTOM4` 中的全局 TPID / EtherType；命中首条满足条件的规则（或 `end == 1` 处的默认规则）时，置 `%res1 = 1`，将 `%index` 更新为命中规则下标，并将该 64 位规则读入 `%data1` |
 | `49` | `6` (`0x06`) | `0x0109` | `[!res1] goto 0x09` | 若遍历至规则段末尾（`end == 1`）仍未命中任何规则，跳至 `PC = 9` 返回 `%res1 = 0` |
 | `50` | `7` (`0x07`) | `0xa098` | `searchr 3, 0, 64` | 规则命中：保持命中的规则下标 `%index` 不变，直接从 `Table 3`（`VLAN_TREATMENT_TABLE`，`VARRAY`）同一下标 `%index` 读取对应的 64 位标签动作项至 `%data1[63:0]` |
-| `51` | `8` (`0x08`) | `0x7810` | `treat` | `op=0x0f (special)`, `subop=2 (treat)`。硬件专用标签合成指令：根据 `%data1`（64 位 `VLAN_TREATMENT` 动作）、`%data2`（64 位 `EXTENDED_VLAN` 端口 TPID 描述符）、`%key`（96 位原帧内外层 TCI/TPID）以及 `%aux`（入向 DSCP 映射的 3 位候选 PCP），在单周期内合成 128 位输出结构（含 `new_outer_tci`、`new_inner_tci`、`new_outer_tpid`、`new_inner_tpid`、`remove_tags`、`add_outer_tag`、`add_inner_tag`、`discard`）并写入 `%data1[127:0]` |
+| `51` | `8` (`0x08`) | `0x7810` | `treat` | `op=0x0f (special)`, `subop=2 (treat)`。硬件专用标签合成指令：根据 `%data1`（64 位 `VLAN_TREATMENT` 动作）、`%data2`（64 位 `EXTENDED_VLAN` 端口 TPID 描述符）、`%key`（96 位原帧内外层 TCI/TPID）以及 `%aux`（入向 DSCP 映射的 3 位候选 PCP），合成 128 位输出结构（含 `new_outer_tci`、`new_inner_tci`、`new_outer_tpid`、`new_inner_tpid`、`remove_tags`、`add_outer_tag`、`add_inner_tag`、`discard`）并写入 `%data1[127:0]` |
 | `52` | `9` (`0x09`) | `0x0006` | `return 128` | `ret=6 (128b)`。向 PE 线程返回 128 位（4 个 32 位字）标签重写指令包 |
 | `56`–`63` | `10`–`17` (`0x0a`–`0x11`) | `0x7340`..`0x70c4` | **`IF_ACL_SEARCH_0`**（8 条指令） | ACL 第 1 通道（Lane 0）三态查找序列：由于 `COP5` 前 4 张表已被 Extended VLAN 与 L4 Filter 占用，因此 `PC = 13` 执行 `read 5, 0, 256`（机器码 `0x81a8`，从 `Table 5` 读取 256 位掩码），`PC = 16` 执行 `searchr 6, 0, 128`（机器码 `0xa130`，在 `Table 6` 上执行三态匹配），其余 6 条指令与 `IF_ACL_SEARCH_1/2/3` 完全相同 |
+
+证据边界：代码中的 `(inferred dst=7,src=0,sel=3)` 是人为推断标记。`0x7718` 的 `mov %aux, %data1.16` 不是原调试打印器已经支持的助记符，不能据此断言该条的切片宽度。其余逐行解释中的表用途来自主机表结构和上下文；不代表已经上板单步或掌握每条指令的周期数。
+
+## 本地依据与适用范围
+
+`extracted/rootfs/lib/firmware/sfu/tse0.bin`–`tse5.bin` 与 `docs/COP_ISA.md`；寄存器配置字布局以 `bsp/modules/onu/drv_onu_reg_coplink_cop.h` 核对。
+
+上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

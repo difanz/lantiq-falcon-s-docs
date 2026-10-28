@@ -1,6 +1,6 @@
 # 5.4 COP 表搜索协处理器与表结构
 
-GPE 内部包含 8 个硬件表搜索协处理器（COP0–COP7），运行频率为 625 MHz。PE 与主机通过片上 `LINK` 互连网络向 COP 发送查表、读写或微码执行请求，硬件在单套表引擎上支持直接数组、变长数组、顺序表、动态单链表、哈希表与三态掩码匹配。
+GPE 内部包含 8 个硬件表搜索协处理器（COP0–COP7）；GPE 初始化的 625 MHz 目标及其证据边界见 [5.1](01_cop_overview.md)。PE 与主机通过片上 `LINK` 互连网络向 COP 发送查表、读写或微码执行请求，硬件在单套表引擎上支持直接数组、变长数组、顺序表、动态单链表、哈希表与三态掩码匹配。
 
 ## 1. 协处理器编号与微码映像
 
@@ -171,3 +171,9 @@ COP 完成命令后返回 2 个 32 位字的 `LINKC2` 响应头（以及可选�
 | 5 | `ERROR_DISCARD_FRAME` | 由外部信号 `External_0` 触发的丢包错误 |
 | 6 | `SOFT_ERR_1` | 微码执行 `mov %err, 6` 触发的自定义错误 1 |
 | 7 | `SOFT_ERR_2` | 微码执行 `mov %err, 7` 触发的自定义错误 2 |
+
+## 本地依据与适用范围
+
+`bsp/modules/onu/drv_onu_reg_coplink_cop.h`、`drv_onu_ll_cop.c`；表配置与指令数还可对照 `extracted/rootfs/lib/firmware/sfu/tse0.bin`–`tse5.bin` 和本地 `docs/COP_ISA.md`。
+
+上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

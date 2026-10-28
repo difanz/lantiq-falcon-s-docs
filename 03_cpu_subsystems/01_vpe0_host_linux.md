@@ -54,12 +54,12 @@ MIPS 34Kc 的 32 KiB I-Cache 与 16 KiB D-Cache 由 `VPE0` 与 `VPE1` 共同访�
 
 ### 2. Boot ROM 与 `SBS0RAM`（`0xBF200000`）二级向量跳转状态机
 
-MIPS 34Kc 核心在硬件复位、软复位或不可屏蔽中断（NMI）发生时，`CP0 Status.BEV` 自动置为 `1`，程序计数器（PC）固定指向 `0xBFC00000`（片上掩膜 Boot ROM）。Boot ROM 支持通过 `SBS0RAM` 起始区域（`0xBF200000`）的魔数锁存机制将复位、NMI 与 EJTAG 异常向量重定向至片上 SRAM 或 DDR2 SDRAM 中的自定义入口：
+处理器复位入口为 `0xBFC00000`，但 NMI 与 EJTAG 具有各自异常入口，不能统称为从该地址重新执行。Falcon 平台在 `SBS0RAM` 起始区域（`0xBF200000`）保存复位、NMI 与 EJTAG 的二级向量指针。旧平台 `prom.c` 的 `ltq_soc_nmi_setup` 与 `ltq_soc_ejtag_setup` 分别写 `BOOT_NVEC`、`BOOT_EVEC`。以下图只表示平台使用的向量关系；image0 不含片上 Boot ROM，不能据此宣称其内部检查和上下文保存流程已被反汇编验证：
 
 ```mermaid
 flowchart TD
     RST["硬件复位 / 软复位 / NMI / EJTAG 触发"]
-    ENTRY["PC = 0xBFC00000 进入片上 Boot ROM"]
+    ENTRY["进入对应的复位或异常入口"]
     CHK_PW["检查 0xBF200020 == 0x4C545100 且 0xBF200024 == 0x0051544C"]
     CHK_CAUSE["判断触发源类型 复位 / NMI / EJTAG"]
     RVEC["读取 BOOT_RVEC 0xBF200000 若非零则跳转执行"]
@@ -77,7 +77,7 @@ flowchart TD
 ```
 
 * **`BOOT_RVEC`（`0xBF200000`）**：软复位重定向入口地址。系统执行全局软复位（写 `SYS1_RBT`）前，若需走完整冷启动流程，需将 `0xBF200000` 显式写 `0`。
-* **`BOOT_NVEC`（`0xBF200004`）**：NMI 处理程序入口地址。当发生 Dying Gasp 掉电告警（`SYS1_NMIS.DGASP`）、PLL 失锁（`SYS1_NMIS.PLL`）或外部 NMI 引脚触发（`SYS1_NMIS.PIN`）时，Boot ROM 保存上下文后直接跳转至 `BOOT_NVEC` 指向的地址。
+* **`BOOT_NVEC`（`0xBF200004`）**：平台写入的 NMI 二级向量指针，关联 Dying Gasp、PLL 与外部 NMI 源；ROM 内部的上下文保存及跳转细节不在此 dump 的证据范围。
 * **`BOOT_EVEC`（`0xBF200008`）**：EJTAG 调试异常入口地址。
 * **`BOOT_PW1_REG`（`0xBF200020`）与 `BOOT_PW2_REG`（`0xBF200024`）**：双 32 位密码校验字。必须分别写入 `0x4C545100`（ASCII `'LTQ\0'`）和 `0x0051544C`（ASCII `'\0QTL'`，即前者的字节逆序），Boot ROM 才认可 `0xBF200000`–`0xBF200008` 中的向量指针有效。
 
@@ -109,4 +109,4 @@ Falcon 支持三路独立 NMI 源，可通过 `SYS1_NMIVPE1C`（`0x1EF000E0`）�
 在 `EBase + 0x200` 中断入口处，处理器读取 `CP0 Cause` 与 `CP0 Status` 的位 `[15:8]`（`IP7:IP0`）：
 * 若 `IP7`（位 `[15]`）置位，表明核内 200 MHz `CP0 Count/Compare` 周期时钟中断触发（全局 IRQ `7`）。
 * 若 `IP2`–`IP6`（位 `[10:14]`）置位，表明 BIU `ICU` 的第 `0`–`4` 组（`IM0`–`IM4`，基址 `0xBF880200`–`0xBF8802A0`）存在已使能的挂起外设中断；处理器读取对应组的 `IMk_IOSR`（`+0x10`）寄存器并根据 `clz` 指令译码出具体外设 IRQ 号（`8`–`167`）。
-* 若 `IP0`–`IP1`（位 `[8:9]`）置位，表明收到软件中断 `SW0` / `SW1`（全局 IRQ `0`–`1`），在双 VPE 协同模式下用于 `VPE0` 与 `VPE1` 之间的跨核通知。
+* 若 `IP0`–`IP1`（位 `[8:9]`）置位，表明收到软件中断 `SW0` / `SW1`（全局 IRQ `0`–`1`）；是否作为 IPI 使用取决于内核配置，不能据此推断 SFP 裸机 VPE1 的通信机制。

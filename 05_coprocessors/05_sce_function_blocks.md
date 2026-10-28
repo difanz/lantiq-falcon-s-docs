@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart TD
-    PE_THREADS["PE0..PE5 48 路硬件线程"] <-->|片上 Data RAM 单周期寻址| PE_LOCAL["PE Local 功能块 全局表 ID 64..79"]
+    PE_THREADS["PE0..PE5 48 路硬件线程"] <-->|片上 Data RAM 本地寻址| PE_LOCAL["PE Local 功能块 全局表 ID 64..79"]
     PE_THREADS <-->|LINK0 协处理器请求与响应总线| LINK_SW["SCE 内部协处理器交换矩阵"]
     HOST_CPU["主控 CPU LINK1 / LINK2 通道"] <-->|表项读写与微码调用| LINK_SW
     LINK_SW --> FB_FID["COP0 FID 功能块 全局表 ID 0..7"]
@@ -24,7 +24,7 @@ SCE 将全部硬件表统一编址在 7 位全局表编号（`Global Table ID`�
 
 | 硬件功能块域 | 全局表 ID 范围 | 硬件译码公式 | 物理存储介质与访问总线 |
 | --- | --- | --- | --- |
-| **COP 协处理器功能块** | `0`–`63` | `COP_ID = Global_ID >> 3`<br/>`Table_ID = Global_ID & 0x7` | 位于 `COP0`–`COP5` 各自的 `2048 × 32-bit`（8 KiB）专用表 SRAM。通过 `LINK` 总线发送 `LINKC1` 命令帧访问；`Table_ID = 0` 固定映射为该 COP 的内部控制寄存器空间（`TABLE10`–`TABLE72`、`GLOBAL`、`CRAM`、`CUSTOM0`–`CUSTOM7`） |
+| **COP 协处理器功能块** | `0`–`63` | `COP_ID = Global_ID >> 3`<br/>`Table_ID = Global_ID & 0x7` | 位于 `COP0`–`COP5` 各自的专用表 SRAM；不能假定每个 COP 都只有 8 KiB（例如本页 COP1 表池已超过此大小）。通过 `LINK` 总线发送 `LINKC1` 命令帧访问；`Table_ID = 0` 固定映射为该 COP 的内部控制寄存器空间（`TABLE10`–`TABLE72`、`GLOBAL`、`CRAM`、`CUSTOM0`–`CUSTOM7`） |
 | **PE 局部表功能块** | `64`–`79` | `PE_Table_ID = Global_ID - 64` | 镜像存储在 `PE0`–`PE5` 各自的片上 Data RAM 中。报文处理期间由 PE 硬件线程直接寻址读取；主控配置时通过 `PE` 的 `HOST[1]`–`HOST[9]` 邮箱寄存器配合 `PCTRL.ISIG` 信号广播写入全部 6 颗 PE |
 
 8 个 SCE 硬件功能块的职责划分与资源汇总如下：
@@ -37,7 +37,7 @@ SCE 将全部硬件表统一编址在 7 位全局表编号（`Global Table ID`�
 | **`TBL`** | `COP3` (`3`) | `24`–`31` | `tse3.bin`（18 条指令） | 5 张（`TABLE1`–`TABLE5`） | 下行 GEM Port 属性索引查表（`GPIX` 直接寻址）、128 位 IPv6 地址到 9 位短索引（`0`–`399`）的哈希压缩映射、4 通道并行 ACL 查找的第 3 通道（Lane 2） |
 | **`MSF`** | `COP4` (`4`) | `32`–`39` | `tse4.bin`（0 条指令，纯硬件表） | 4 张（`TABLE1`–`TABLE4`） | 上行 GEM Port 属性查表、下行 IGMPv3/MLDv2 组播源 IP 过滤列表搜索、704 项 32 位报文/丢包计数器原子累加、基于 VLAN 的计量器绑定查找 |
 | **`EXT`** | `COP5` (`5`) | `40`–`47` | `tse5.bin`（18 条指令） | 6 张（`TABLE1`–`TABLE6`） | Extended VLAN 三表级联规则匹配与标签增删改动作合成（配合 `CUSTOM0`–`CUSTOM7` 与专用指令 `treat`）、四层 TCP/UDP 端口号过滤、4 通道并行 ACL 查找的第 1 通道（Lane 0） |
-| **`TBM`** | `COP14` (`14`) | 无表编号（计量器 ID `0`–`511`） | 硬连线状态机 | 512 组双令牌桶寄存器 | 512 路独立双令牌桶（CIR/CBS + PIR/PBS）硬件流量监管，支持 RFC 2698 与 MEF 10.1 色盲/色敏计量 |
+| **`TBM`** | `COP14` (`14`) | 无表编号（计量器 ID `0`–`511`） | 硬连线状态机 | 512 个单桶寄存器 | 256 对双令牌桶（CIR/CBS + PIR/PBS）硬件流量监管，支持 RFC 2698 与 MEF 10.1 色盲/色敏计量 |
 | **`PE Local`** | `PE0`–`PE5` (`255`) | `64`–`79` | `falcon_gpe_fw.bin` | 15 张（PE Table `0`–`15`） | 全局常量表、桥接端口表、802.1p P-Mapper 表、UNI 端口表、入队表、PCP/DSCP 编解码表、重定向表、VLAN 段起始指针表、网桥实例表、状态表与异常捕获表 |
 
 ---
@@ -52,11 +52,11 @@ SCE 将全部硬件表统一编址在 7 位全局表编号（`Global Table ID`�
 
 | 物理表号 | 全局表 ID | 表名称 | 表类型 (`TYPE`) | 匹配模式 (`MODE`) | 基址 (`BASE`) | 项数 (`SIZE`) | 键宽 (`KEYLEN`) | 项宽 (`ENTRYLEN`) | 占用 32 位字数 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `Table 1` | `1` / `6` | `FID_ASSIGNMENT_TABLE` / `FID_ASSIGNMENT_TABLE_MASKED` | `LLIST` (`2`) | `GENERIC` (`0`) / `MASK` (`2`) | `0x0000` (0) | 256 | 32 b | 64 b | 512 (`0x0000`–`0x01FF`) |
-| `Table 2` | `2` | `FID_HASH_TABLE` | `HASH` (`3`) | `GENERIC` (`0`) | `0x0200` (512) | 128 | 32 b | 32 b | 128 (`0x0200`–`0x027F`) |
-| `Table 3` | `3` | `ETHERTYPE_FILTER_TABLE` | `LIST` (`1`) | `GENERIC` (`0`) | `0x0280` (640) | 64 | 16 b | 32 b | 64 (`0x0280`–`0x02BF`) |
-| `Table 4` | `4` | `ACL_FILTER_TABLE_LANE3` | `LIST` (`1`) | `GENERIC` (`0`) | `0x02C0` (704) | 128 | 128 b | 256 b | 1024 (`0x02C0`–`0x06BF`) |
-| `Table 5` | `5` | `ACL_FILTER_TABLE_LANE3_TERNARY` | `LIST` (`1`) | `TERNARY` (`1`) | `0x02C0` (704) | 128 | 128 b | 256 b | 与 `Table 4` 共享物理区间 |
+| `Table 1` | `1` / `6` | `FID_ASSIGNMENT_TABLE` / `FID_ASSIGNMENT_TABLE_MASKED` | `LLIST` (`3`) | `GENERIC` (`0`) / `MASK` (`2`) | `0x0000` (0) | 256 | 32 b | 64 b | 512 (`0x0000`–`0x01FF`) |
+| `Table 2` | `2` | `FID_HASH_TABLE` | `HASH` (`4`) | `GENERIC` (`0`) | `0x0200` (512) | 128 | 32 b | 32 b | 128 (`0x0200`–`0x027F`) |
+| `Table 3` | `3` | `ETHERTYPE_FILTER_TABLE` | `LIST` (`2`) | `GENERIC` (`0`) | `0x0280` (640) | 64 | 16 b | 32 b | 64 (`0x0280`–`0x02BF`) |
+| `Table 4` | `4` | `ACL_FILTER_TABLE_LANE3` | `LIST` (`2`) | `GENERIC` (`0`) | `0x02C0` (704) | 128 | 128 b | 256 b | 1024 (`0x02C0`–`0x06BF`) |
+| `Table 5` | `5` | `ACL_FILTER_TABLE_LANE3_TERNARY` | `LIST` (`2`) | `TERNARY` (`2`) | `0x02C0` (704) | 128 | 128 b | 256 b | 与 `Table 4` 共享物理区间 |
 
 - **双逻辑 ID 共享物理表 1**：全局表 ID `1`（`FID_ASSIGNMENT_TABLE`）与全局表 ID `6`（`FID_ASSIGNMENT_TABLE_MASKED`）指向同一张物理表 `Table 1`（`BASE = 0x0000`）。当使用精确键值或哈希冲突链遍历（`IF_FID_LOOKUP_MC`、`IF_FID_LOOKUP_UC`）时按 `GENERIC` 模式访问；当需要带掩码检索时按 ID `6` 访问。
 - **双表描述符共享 ACL 内存**：`Table 4`（`MODE = GENERIC`）与 `Table 5`（`MODE = TERNARY`）共享基址 `0x02C0`。微码在 `IF_ACL_SEARCH_3` 中先通过 `read 4, 0, 256` 从 `Table 4` 读取 128 位全局掩码装入 `%key_mask` 与 `%data2`，再通过 `searchr 5, 0, 128` 在 `Table 5` 上启动硬件三态匹配。
@@ -114,8 +114,8 @@ SCE 将全部硬件表统一编址在 7 位全局表编号（`Global Table ID`�
 
 | 物理表号 | 全局表 ID | 表名称 | 表类型 (`TYPE`) | 匹配模式 (`MODE`) | 基址 (`BASE`) | 项数 (`SIZE`) | 键宽 (`KEYLEN`) | 项宽 (`ENTRYLEN`) | 物理地址范围（32 位字） |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `Table 1` | `9` | `SHORT_FWD_HASH_TABLE` | `HASH` (`3`) | `GENERIC` (`0`) | `0x0000` (0) | 512 | 64 b | 32 b | `0x0000`–`0x01FF` (512 字) |
-| `Table 2` | `10` | `SHORT_FWD_TABLE` (`MAC` / `MAC_MC` / `IPV4` / `IPV4_MC`) | `LLIST` (`2`) | `GENERIC` (`0`) | `0x0200` (512) | 1024 | 64 b | 128 b | `0x0200`–`0x11FF` (4096 字) |
+| `Table 1` | `9` | `SHORT_FWD_HASH_TABLE` | `HASH` (`4`) | `GENERIC` (`0`) | `0x0000` (0) | 512 | 64 b | 32 b | `0x0000`–`0x01FF` (512 字) |
+| `Table 2` | `10` | `SHORT_FWD_TABLE` (`MAC` / `MAC_MC` / `IPV4` / `IPV4_MC`) | `LLIST` (`3`) | `GENERIC` (`0`) | `0x0200` (512) | 1024 | 64 b | 128 b | `0x0200`–`0x11FF` (4096 字) |
 | `Table 3` | `11` | `LEARNING_LIMITATION_TABLE` | `ARRAY` (`0`) | `GENERIC` (`0`) | `0x1200` (4608) | 128 | 0 b | 32 b | `0x1200`–`0x127F` (128 字) |
 | `Table 4` | `12` | `SHORT_FWD_TABLE_MAC_ALTERNATE` | `VARRAY` (`4`) | `GENERIC` (`0`) | `0x0200` (512) | 1024 | 0 b | 128 b | 与 `Table 2` 完全重叠 (`0x0200`–`0x11FF`) |
 
@@ -193,10 +193,10 @@ SCE 将全部硬件表统一编址在 7 位全局表编号（`Global Table ID`�
 | 物理表号 | 全局表 ID | 表名称 | 表类型 (`TYPE`) | 匹配模式 (`MODE`) | 基址 (`BASE`) | 项数 (`SIZE`) | 键宽 (`KEYLEN`) | 项宽 (`ENTRYLEN`) | 物理地址范围（32 位字） |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `Table 1` | `17` | `TAGGING_FILTER_TABLE` | `VARRAY` (`4`) | `GENERIC` (`0`) | `0x0000` (0) | 128 | 0 b | 64 b | `0x0000`–`0x00FF` (256 字) |
-| `Table 2` | `18` | `VLAN_TABLE` | `LIST` (`1`) | `MASK` (`2`) | `0x0100` (256) | 1024 | 16 b | 32 b | `0x0100`–`0x04FF` (1024 字) |
-| `Table 3` | `19` | `MAC_FILTER_TABLE` | `LLIST` (`2`) | `GENERIC` (`0`) | `0x0500` (1280) | 256 | 64 b | 64 b | `0x0500`–`0x06FF` (512 字) |
-| `Table 4` | `20` | `ACL_FILTER_TABLE_LANE1` | `LIST` (`1`) | `GENERIC` (`0`) | `0x0700` (1792) | 128 | 128 b | 256 b | `0x0700`–`0x0AFF` (1024 字) |
-| `Table 5` | `21` | `ACL_FILTER_TABLE_LANE1_TERNARY` | `LIST` (`1`) | `TERNARY` (`1`) | `0x0700` (1792) | 128 | 128 b | 256 b | 与 `Table 4` 共享物理区间 |
+| `Table 2` | `18` | `VLAN_TABLE` | `LIST` (`2`) | `MASK` (`2`) | `0x0100` (256) | 1024 | 16 b | 32 b | `0x0100`–`0x04FF` (1024 字) |
+| `Table 3` | `19` | `MAC_FILTER_TABLE` | `LLIST` (`3`) | `GENERIC` (`0`) | `0x0500` (1280) | 256 | 64 b | 64 b | `0x0500`–`0x06FF` (512 字) |
+| `Table 4` | `20` | `ACL_FILTER_TABLE_LANE1` | `LIST` (`2`) | `GENERIC` (`0`) | `0x0700` (1792) | 128 | 128 b | 256 b | `0x0700`–`0x0AFF` (1024 字) |
+| `Table 5` | `21` | `ACL_FILTER_TABLE_LANE1_TERNARY` | `LIST` (`2`) | `TERNARY` (`2`) | `0x0700` (1792) | 128 | 128 b | 256 b | 与 `Table 4` 共享物理区间 |
 
 ### 4.2 `TAGGING_FILTER_TABLE`（ID 17，64-bit）与 `VLAN_TABLE`（ID 18，32-bit）
 
@@ -254,10 +254,10 @@ PE 线程或主控通过 `LINK` 总线调用 `COP2` 的 `IF_TAG_FILTER`（入口
 | 物理表号 | 全局表 ID | 表名称 | 表类型 (`TYPE`) | 匹配模式 (`MODE`) | 基址 (`BASE`) | 项数 (`SIZE`) | 键宽 (`KEYLEN`) | 项宽 (`ENTRYLEN`) | 物理地址范围（32 位字） |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `Table 1` | `25` | `DS_GEM_PORT_TABLE` | `VARRAY` (`4`) | `GENERIC` (`0`) | `0x0000` (0) | 256 | 0 b | 128 b | `0x0000`–`0x03FF` (1024 字) |
-| `Table 2` | `26` | `IPV6_REDUCTION_HASH_TABLE` | `HASH` (`3`) | `GENERIC` (`0`) | `0x0400` (1024) | 256 | 128 b | 32 b | `0x0400`–`0x04FF` (256 字) |
-| `Table 3` | `27` | `IPV6_REDUCTION_TABLE` | `LLIST` (`2`) | `GENERIC` (`0`) | `0x0500` (1280) | 400 | 128 b | 256 b | `0x0500`–`0x117F` (3200 字) |
-| `Table 4` | `28` | `ACL_FILTER_TABLE_LANE2` | `LIST` (`1`) | `GENERIC` (`0`) | `0x1180` (4480) | 128 | 128 b | 256 b | `0x1180`–`0x157F` (1024 字) |
-| `Table 5` | `29` | `ACL_FILTER_TABLE_LANE2_TERNARY` | `LIST` (`1`) | `TERNARY` (`1`) | `0x1180` (4480) | 128 | 128 b | 256 b | 与 `Table 4` 共享物理区间 |
+| `Table 2` | `26` | `IPV6_REDUCTION_HASH_TABLE` | `HASH` (`4`) | `GENERIC` (`0`) | `0x0400` (1024) | 256 | 128 b | 32 b | `0x0400`–`0x04FF` (256 字) |
+| `Table 3` | `27` | `IPV6_REDUCTION_TABLE` | `LLIST` (`3`) | `GENERIC` (`0`) | `0x0500` (1280) | 400 | 128 b | 256 b | `0x0500`–`0x117F` (3200 字) |
+| `Table 4` | `28` | `ACL_FILTER_TABLE_LANE2` | `LIST` (`2`) | `GENERIC` (`0`) | `0x1180` (4480) | 128 | 128 b | 256 b | `0x1180`–`0x157F` (1024 字) |
+| `Table 5` | `29` | `ACL_FILTER_TABLE_LANE2_TERNARY` | `LIST` (`2`) | `TERNARY` (`2`) | `0x1180` (4480) | 128 | 128 b | 256 b | 与 `Table 4` 共享物理区间 |
 
 ### 5.2 `DS_GEM_PORT_TABLE` 表项位域（全局表 ID 25，128-bit）
 
@@ -308,9 +308,9 @@ PE 线程或主控通过 `LINK` 总线调用 `COP2` 的 `IF_TAG_FILTER`（入口
 | 物理表号 | 全局表 ID | 表名称 | 表类型 (`TYPE`) | 匹配模式 (`MODE`) | 基址 (`BASE`) | 项数 (`SIZE`) | 键宽 (`KEYLEN`) | 项宽 (`ENTRYLEN`) | 物理地址范围（32 位字） |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `Table 1` | `33` | `US_GEM_PORT_TABLE` | `VARRAY` (`4`) | `GENERIC` (`0`) | `0x0000` (0) | 256 | 0 b | 64 b | `0x0000`–`0x01FF` (512 字) |
-| `Table 2` | `34` | `DS_MC_IP_SOURCE_FILTER_TABLE` | `LIST` (`1`) | `GENERIC` (`0`) | `0x0200` (512) | 512 | 64 b | 128 b | `0x0200`–`0x09FF` (2048 字) |
+| `Table 2` | `34` | `DS_MC_IP_SOURCE_FILTER_TABLE` | `LIST` (`2`) | `GENERIC` (`0`) | `0x0200` (512) | 512 | 64 b | 128 b | `0x0200`–`0x09FF` (2048 字) |
 | `Table 3` | `35` | `COUNTER_TABLE` | `ARRAY` (`0`) | `GENERIC` (`0`) | `0x0A00` (2560) | 704 | 0 b | 32 b | `0x0A00`–`0x0CBF` (704 字) |
-| `Table 4` | `36` | `VLAN_METERING_TABLE` | `LIST` (`1`) | `GENERIC` (`0`) | `0x0CC0` (3264) | 64 | 16 b | 32 b | `0x0CC0`–`0x0CFF` (64 字) |
+| `Table 4` | `36` | `VLAN_METERING_TABLE` | `LIST` (`2`) | `GENERIC` (`0`) | `0x0CC0` (3264) | 64 | 16 b | 32 b | `0x0CC0`–`0x0CFF` (64 字) |
 
 ### 6.2 `US_GEM_PORT_TABLE` 表项位域（全局表 ID 33，64-bit）
 
@@ -339,7 +339,7 @@ PE 线程或主控通过 `LINK` 总线调用 `COP2` 的 `IF_TAG_FILTER`（入口
 
 ### 6.4 `COUNTER_TABLE` 硬件统计计数器分区（全局表 ID 35，704 × 32-bit）
 
-`COP4` `Table 3` 提供 704 个 32 位硬件计数器，PE 线程在转发或丢包时通过 `LINKC1 COUNT` 命令单周期原子递增对应索引：
+`COP4` `Table 3` 提供 704 个 32 位硬件计数器，PE 线程在转发或丢包时通过 `LINKC1 COUNT` 命令原子递增对应索引：
 
 | 计数器索引范围 | 项数 | 索引计算公式 | 统计的硬件事件 |
 | --- | --- | --- | --- |
@@ -374,11 +374,11 @@ PE 线程或主控通过 `LINK` 总线调用 `COP2` 的 `IF_TAG_FILTER`（入口
 | 物理表号 | 全局表 ID | 表名称 | 表类型 (`TYPE`) | 匹配模式 (`MODE`) | 基址 (`BASE`) | 项数 (`SIZE`) | 键宽 (`KEYLEN`) | 项宽 (`ENTRYLEN`) | 物理地址范围（32 位字） |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `Table 1` | `41` | `EXTENDED_VLAN_TABLE` | `VARRAY` (`4`) | `GENERIC` (`0`) | `0x0000` (0) | 128 | 0 b | 64 b | `0x0000`–`0x00FF` (256 字) |
-| `Table 2` | `42` | `VLAN_RULE_TABLE` | `LIST` (`1`) | `CUSTOM` (`3`) | `0x0100` (256) | 1024 | 96 b | 64 b | `0x0100`–`0x08FF` (2048 字) |
+| `Table 2` | `42` | `VLAN_RULE_TABLE` | `LIST` (`2`) | `CUSTOM` (`3`) | `0x0100` (256) | 1024 | 96 b | 64 b | `0x0100`–`0x08FF` (2048 字) |
 | `Table 3` | `43` | `VLAN_TREATMENT_TABLE` | `VARRAY` (`4`) | `GENERIC` (`0`) | `0x0900` (2304) | 1024 | 0 b | 64 b | `0x0900`–`0x10FF` (2048 字) |
-| `Table 4` | `44` | `L4_FILTER_TABLE` | `LIST` (`1`) | `GENERIC` (`0`) | `0x1100` (4352) | 64 | 16 b | 32 b | `0x1100`–`0x113F` (64 字) |
-| `Table 5` | `45` | `ACL_FILTER_TABLE_LANE0` | `LIST` (`1`) | `GENERIC` (`0`) | `0x1140` (4416) | 128 | 128 b | 256 b | `0x1140`–`0x153F` (1024 字) |
-| `Table 6` | `46` | `ACL_FILTER_TABLE_LANE0_TERNARY` | `LIST` (`1`) | `TERNARY` (`1`) | `0x1140` (4416) | 128 | 128 b | 256 b | 与 `Table 5` 共享物理区间 |
+| `Table 4` | `44` | `L4_FILTER_TABLE` | `LIST` (`2`) | `GENERIC` (`0`) | `0x1100` (4352) | 64 | 16 b | 32 b | `0x1100`–`0x113F` (64 字) |
+| `Table 5` | `45` | `ACL_FILTER_TABLE_LANE0` | `LIST` (`2`) | `GENERIC` (`0`) | `0x1140` (4416) | 128 | 128 b | 256 b | `0x1140`–`0x153F` (1024 字) |
+| `Table 6` | `46` | `ACL_FILTER_TABLE_LANE0_TERNARY` | `LIST` (`2`) | `TERNARY` (`2`) | `0x1140` (4416) | 128 | 128 b | 256 b | 与 `Table 5` 共享物理区间 |
 
 ### 7.2 Extended VLAN 三表位域结构（全局表 ID 41、42、43，各 64-bit）
 
@@ -443,7 +443,7 @@ PE 线程向 `COP5` 发起 `IF_VLAN_TRANSLATE`（入口 `PC = 0`）调用时，�
 
 ## 8. 跨功能块协同：4-Lane 并行 ACL 搜索架构
 
-为在单次报文处理周期内完成 256 位宽三态流分类（ACL）查找，SCE 将 128 条 ACL 规则槽位均分为 4 条并行通道（Lane 0–Lane 3），分布在 4 个独立的 COP 功能块中：
+固件在四个 COP 中各配置 128 项、256-bit 的 ACL 表视图，形成 4 条查找通道；并非把总计 128 项简单均分为每通道 32 项。PE 如何组合通道结果及哪些项用于掩码，还需逐条微码确认。各通道（Lane 0–Lane 3），分布在 4 个独立的 COP 功能块中：
 
 | ACL 通道号 | 承载的功能块与协处理器 | 通用表 ID (`MODE = GENERIC`) | 三态表 ID (`MODE = TERNARY`) | 物理表号 | 表 SRAM 基址 (`BASE`) | 微码导出函数名与入口 PC |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -477,9 +477,9 @@ PE 线程向 `COP5` 发起 `IF_VLAN_TRANSLATE`（入口 `PC = 0`）调用时，�
 
 ## 9. 功能块 14：`TBM`（`COP14` 硬件双令牌桶计量功能块）
 
-`TBM`（Token Bucket Meter）挂载在 `LINK` 总线的 `COP_ID = 14` 地址上，内部集成 512 个独立的双令牌桶（Committed Bucket `C` + Excess/Peak Bucket `E/P`）状态机：
+`TBM`（Token Bucket Meter）挂载在 `LINK` 总线的 `COP_ID = 14` 地址上，内部集成 512 个单桶，可按偶/奇索引组成 256 对双令牌桶（Committed Bucket `C` + Excess/Peak Bucket `E/P`）状态机：
 - **并行计量请求**：PE 线程在处理开启了端口限速（`BRIDGE_PORT`）、GEM 端口限速（`DS_GEM_PORT`）、VLAN 限速（`VLAN_METERING`）、ACL 限速（`ACL_FILTER`）或 ANI 异常报文限速（`CONSTANTS`）的报文时，向 `COP14` 发送携带 9 位 `Meter ID`（`0`–`511`）、14 位报文字节长度与 2 位入向颜色的 `LINK` 请求。
-- **单周期颜色判定**：`COP14` 硬件根据该桶配置的算法模式（RFC 2698 trTCM 色盲/色敏、MEF 10.1 耦合/非耦合）原子扣减令牌余额，返回 2 位出向颜色（绿色 `0`、黄色 `1`、红色 `2`）。若返回红色，PE 线程立即终止后续查表并将该帧计入丢包统计。
+- **颜色判定**：`COP14` 硬件根据该桶配置的算法模式（RFC 2698 trTCM 色盲/色敏、MEF 10.1 耦合/非耦合）原子扣减令牌余额，返回 2 位出向颜色（绿色 `0`、黄色 `1`、红色 `2`）。若返回红色，PE 线程立即终止后续查表并将该帧计入丢包统计。
 
 ---
 
@@ -560,9 +560,12 @@ PE 线程向 `COP5` 发起 `IF_VLAN_TRANSLATE`（入口 `PC = 0`）调用时，�
 
 #### （3）`EXCEPTION_TABLE`（全局表 ID 78，64-bit / 2 字）
 
-每套异常模板占 64 位（2 个 32 位字），分别由 `Word 0`（转发使能掩码 `forward_mask`）和 `Word 1`（上送 CPU 使能掩码 `cpu_mask`）组合定义 32 种协议或异常事件的处置动作（`00` = 丢弃，`10` = 正常硬件转发，`01` = 仅重定向至 CPU，`11` = 正常转发同时镜像一份至 CPU）：
+每个异常模板占 64 位。大端目标的 `gpe_exception_table` 明确把 Word 0 定义为 `egress_exception_flag_mask`，Word 1 为 `ingress_exception_flag_mask`；两者是方向掩码，不能解释为 forward/cpu 两个动作位图。
 
-| 32 位字 | 位域范围 | 字段名称 | 控制的协议与异常位 |
-| --- | --- | --- | --- |
-| `Word 0` | `[31:0]` | `forward_mask` | 各异常位是否继续走硬件桥接转发通路（含 IGMP、MLD、ARP、DHCPv4/v6、PPPoE Discovery/Session、802.1X EAPOL、BPDU、CFM/OAM、Custom EtherType 0–7、Local MAC、TTL Expired 等） |
-| `Word 1` | `[31:0]` | `cpu_mask` | 各异常位是否生成异常描述符并压入 `TMU` 的 CPU 出向端口（`EPN 64`–`71`） |
+异常动作另由 `gpe_redirection_table`（表 ID 73）控制：`redirection_queue_index[7:0]` 选择队列（255 表示丢弃），`snooping_enable[8]` 使异常处理之外仍按原数据流复制/转发；另有 `remove_meta_data_header[9]` 与 `no_exception_policer[10]`。必须结合方向掩码、重定向项及端口配置判断镜像、捕获或丢弃，不能通过“两个掩码同时置 1”配置镜像。来源：`bsp/modules/onu/include/drv_onu_gpe_tables.h` 的上述两种结构。
+
+## 本地依据与适用范围
+
+`bsp/modules/onu/include/drv_onu_resource_gpe_tables.h`（ID/尺寸）、`drv_onu_gpe_tables.h`（大端表字段）及六份原始 `tse*.bin`。表编号保留不等于该固件已经配置该表，运行策略与表结构也应分开。
+
+上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

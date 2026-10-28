@@ -81,3 +81,9 @@ flowchart TD
 2. **开环与闭环切换**：
    - **开环模式（Open-Loop）**：禁用 `LOOP_REGULATION_BIAS`（`0x1A0`）与 `LOOP_REGULATION_MODULATION`（`0x1A4`）自动步进，直接根据实时芯片温度查表获取目标 `Ibias` 与 `Imod` 写入 `DUAL_LOOP_BIAS_INIT`（`0x194`）与 `DUAL_LOOP_MOD_Init`（`0x190`）。
    - **双闭环模式（Dual-Loop）**：将温度补偿后的目标光功率参考值写入 `P0LEVEL`（`0x1AC`）与 `P1LEVEL`（`0x1B0`）。每次上行突发中，硬件根据 `P0` 比较器符号自动微调 `Ibias`，根据 `P1` 比较器符号微调 `Imod`，并监控 `THRESHOLD_SUMCTRL`（`0x184`）防止激光器老化导致过流损坏。
+
+## 本地依据与适用范围
+
+`bsp/modules/optic` 的 `drv_optic_reg_fcsi_txbosa.h`、`drv_optic_reg_fcsi_rxbosa.h`、BFD/PMA 寄存器头与 `drv_optic_ll_mpd.c`。开闭环及采样原理是对字段用途的说明，不是本板光功率/安全裕量测量。
+
+上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

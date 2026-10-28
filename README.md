@@ -6,8 +6,26 @@ Lantiq Falcon（PEB 98035 / PEF 98035）GPON SoC 硬件架构、寄存器映射�
 |---|---|---|---|
 | VPE0 | MIPS 34Kc VPE0（大端 MIPS32r2） | KSEG0/KSEG1，外设总线 `0x1D000000`–`0x1F8803FF` | 主控系统、GPON OMCI/PLOAM 控制面与光路校准 |
 | VPE1 | MIPS 34Kc VPE1（MT ASE 共享核） | 独立硬件线程 TC1，共享内存 `0x1F200200` | SFP I2C 双地址从机（`0xA0`/`0xA2`）实时响应 |
-| SCE (GPE) | 6 颗 64 位 PE + 8 个 16 位 COP | SBS2 总线 `0x1D400000`–`0x1D7000FF` | GPON/Ethernet 线速报文解析、流表查找（FID/FWD/TAG/TBL/MSF/EXT）与头部重写 |
+| SCE (GPE) | 6 个 PE + 8 个 COP（指令与寄存器宽度见第 5 章） | SBS2 总线 `0x1D400000`–`0x1D7000FF` | GPON/Ethernet 线速报文解析、流表查找（FID/FWD/TAG/TBL/MSF/EXT）与头部重写 |
 | GPHY0 / GPHY1 | 2 颗嵌入式 MCS-51 (8051) | 代码重映射至 SBS0 RAM `0x1F204000` 或片上 ROM | 千兆/百兆以太网 PHY 链路训练、自协商与内部寄存器管理 |
+
+## 本地构建与阅读入口
+
+使用 Python 3.12 或更新版本，在独立虚拟环境安装依赖（当前 Sphinx 与 Lumina 版本均要求 Python 3.12，Read the Docs 配置与此一致）：
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+make check SPHINXBUILD=.venv/bin/sphinx-build
+```
+
+HTML 入口为 `_build/html/index.html`。`make check` 强制重新读取源文件，启用缺失引用检查并将警告视为失败。普通增量构建使用 `make html`（同样传入 `SPHINXBUILD`）；Read the Docs 使用 `.readthedocs.yaml` 并在警告时失败。安装依赖需要网络；Mermaid 图的浏览器渲染也需要加载相应脚本。
+
+Sphinx 导航以 `index.md` 和各章 `index.md` 的 toctree 为准。README 是源码浏览入口，按配置不生成 HTML 页面。
+
+## 证据范围
+
+原固件为 MA5671A image0（Linux 3.10.49 / SFP 7.5.3）。文中寄存器地址、原驱动行为、固件反汇编与板级配置应分别核对；恢复源码和 Linux 7.3 移植不能自动证明原固件行为或真机可启动。芯片功能存在也不代表 MA5671A 的封装、接线或固件已启用该功能。
 
 ## 目录
 
@@ -51,7 +69,7 @@ Lantiq Falcon（PEB 98035 / PEF 98035）GPON SoC 硬件架构、寄存器映射�
 - [6.5 DISP 与 MERGE](06_functional_blocks/05_disp_and_merge.md)
 - [6.6 TOD 时间同步](06_functional_blocks/06_tod_sync.md)
 - [6.7 片上 DC/DC（Core、DDR、APD）](06_functional_blocks/07_dcdc_converters.md)
-- [6.8 多处理器子系统（MPS）与语音数字前端（DFEV0）](06_functional_blocks/08_mps_and_dfev0.md)
+- [6.8 MPS 与 DFEV0：硬件资源及本板使用边界](06_functional_blocks/08_mps_and_dfev0.md)
 
 ### [7. PHY 与 MAC 子系统](07_phy_and_mac/README.md)
 - [7.1 PMA 与 FCSI 总线](07_phy_and_mac/01_optical_frontend_fcsi.md)
@@ -70,10 +88,10 @@ Lantiq Falcon（PEB 98035 / PEF 98035）GPON SoC 硬件架构、寄存器映射�
 ### [9. 控制流与协议交互](09_control_flow/README.md)
 - [9.1 PLOAM 状态机](09_control_flow/01_ploam_statemachine.md)
 - [9.2 OMCI 与 MIB](09_control_flow/02_omci_subsystem.md)
-- [9.3 硬件控制域与 VPE1 双地址从机共享内存](09_control_flow/03_driver_ioctl_interfaces.md)
+- [9.3 驱动 ioctl 与 VPE1 共享内存](09_control_flow/03_driver_ioctl_interfaces.md)
 - [9.4 硬件初始化序列、光路闭环校准与 DDM 刷新](09_control_flow/04_userspace_control_tools.md)
 
 ### [10. 附录：MA5671A 板级定制](10_ma5671a_board_reference/README.md)
 - [10.1 引脚映射与串口模式](10_ma5671a_board_reference/01_pinmux_and_sfp_mapping.md)
 - [10.2 falcon-sfp.dts 与启动脚本](10_ma5671a_board_reference/02_dts_and_board_config.md)
-- [10.3 U-Boot 环境变量](10_ma5671a_board_reference/03_board_tuning_and_env.md)
+- [10.3 U-Boot 环境与现代配套](10_ma5671a_board_reference/03_board_tuning_and_env.md)

@@ -85,3 +85,9 @@ flowchart LR
    - 若 `QOCC >= (QRTH << 3)`（已超过该队列专享保留配额），且 `GOCC >= GOTH` 或 `SFREE0/1` 所绑定的 `FSQM.FSQT0..4` 空闲段低水位信号有效，硬件同样丢弃该报文，锁存 `DRC.GOTH_DROP` 或 `DRC.SFREE_DROP`。
 2. **迟滞反压机制**：当 `IQT0.QBP == 1` 且 `QOCC >= (QBTHH << 3)` 时，IQM 置位 `IQT3.QBP` 并向对应的入向端口控制器（如 `ICTRLL0..3`）输出反压信号；直到队列排空至 `QOCC <= (QBTHL << 3)` 时才撤销反压。
 3. **36 槽位 WRR 调度表**：IQM 出队引擎按 `0..WRRC.PER - 1` 循环扫描 `WRRQ0..4` 中的 4-bit 槽位（`WRRQ0..3` 各含 8 个槽位，`WRRQ4` 含 4 个槽位，共 36 个槽位）。每个槽位填写目标队列号 `0..8`（填写 `0xF` 表示空槽跳过）。若当前槽位指向的队列非空且 `IQT0.QD == 0`，IQM 弹出其队首 64-bit PDU 描述符连同 128-bit 报文头送往 `DISP`。为确保下行 OMCI 消息在高负载下不丢包，队列 7（`OMCI`）在 36 槽位表中分配更高密度的槽位。
+
+## 本地依据与适用范围
+
+`bsp/modules/onu/drv_onu_reg_iqm.h` 与 `include/drv_onu_resource_gpe.h:ONU_GPE_INGRESS_QUEUE_*`。队列属于芯片内部资源，不等于本板实际接出的端口数量。
+
+上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

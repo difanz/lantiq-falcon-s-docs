@@ -42,15 +42,15 @@ flowchart TD
 
 | 字节偏移 | 寄存器名 | 位域与功能说明 |
 | --- | --- | --- |
-| `0x00` | `ctrl` | `ACT`（bit 0）：激活接收状态机；`RAW`（bit 1）：Raw 模式使能；`BC`（bit 2）：广播识别使能 |
-| `0x04` | `dmaw_cfg` | `ALLOCQ`（bits 1:0）：向 `FSQM` 申请空闲段的队列号；`FREEQ`（bits 9:8）：异常丢包时归还段的队列号；`LSARLMT`（bits 23:16）：段分配请求上限 |
-| `0x08`–`0x24` | `maxsize[0..7]` | `SIZE`（bits 15:0）：按 PDU 类型 0..7 设定的最大接收字节数阈值 |
-| `0x28` / `0x2C` | `rxbcntl` / `rxbcnth` | 接收总字节数 64 位计数器 |
-| `0x30` | `rxpcnt` | 接收总包数计数器 |
-| `0x34`–`0x4C` | `rxp64cnt`–`rxp1519cnt` | 按帧长区间（64、65–127、128–255、256–511、512–1023、1024–1518、≥1519）统计的接收包计数器 |
-| `0x50` | `ovsizecnt` | 超长帧丢弃计数器 |
-| `0x54` | `dcnt` | 因 `FSQM` 段耗尽或 `IQM` 满导致的硬件丢包计数器 |
-| `0x58` | `macerrcnt` | `EIM` 报告的 MAC 层 CRC/对齐错误帧计数器 |
+| `0x00` | `ctrl` | ACT bit 0、RAW bit 8、BC bit 9、DBG bit 31 |
+| `0x04` | `dmaw_cfg` | ALLOCQ bit 9、FREEQ bit 8、LSARLMT bits 7:0（等待周期限制） |
+| `0x20 / 0x24` | `rawda0/1` | RAW 模式目的地址 |
+| `0x30`–`0x4C` | `maxsize[0..7]` | 各 PDU 类型的最大接收长度 |
+| `0x50 / 0x54` | `rxbcntl / rxbcnth` | 接收字节计数低/高部分 |
+| `0x58 / 0x5C` | `ovrsize / dmawerr` | 超长与 DMAW 错误计数 |
+| `0x80` | `macerr` | GMAC 错误计数 |
+
+依据为 `drv_onu_reg_ictrll.h:struct onu_reg_ictrll`。此前在 `+0x08` 列 `maxsize`、在 `+0x34` 列帧长分桶计数的布局不属于这份 ICTRLL。
 
 `ICTRLLn` 接收到一个以太网帧时，向 `FSQM`（`0x1D500000`）逐段申请 64 字节 `SSB0` 段，在首段起始处预留 `HDR_OFF`（32 字节）头部扩展空间以便后续压入外层/内层 VLAN 标签或 PPPoE/GEM 头部，将帧数据通过 DMA 写入 `SSB0` 并在 `LLT` 中链接各段，最后生成入向描述符压入 `IQM` 的 `Q0`–`Q3`。
 
@@ -67,16 +67,16 @@ flowchart TD
 `IQM` 从 `Q0`–`Q4` 调度出上行报文描述符后，经 `DISP`（`0x1D600500`）提取前 128 字节头部并分发至 `PE0`–`PE5`（`0x1D610000`–`0x1D660000`）的硬件线程。上行硬件处理流水线依次执行以下步骤：
 
 1. **UNI 端口属性与入向 Bridge Port 解析**：
-   - `PE` 读取本地常量表 `LAN_PORT`（ID 67，4 项）与 `BRIDGE_PORT`（ID 65，88 项），提取该 UNI 端口关联的 `Bridge Port Index`、缺省 VID/PCP、入向 ACL 掩码、源 MAC 学习使能位及学习数量上限。
+   - `PE` 读取本地常量表 `LAN_PORT`（ID 67，8 项；其中物理 UNI 索引为 0..3）与 `BRIDGE_PORT`（ID 65，88 项），提取该 UNI 端口关联的 `Bridge Port Index`、缺省 VID/PCP、入向 ACL 掩码、源 MAC 学习使能位及学习数量上限。
 2. **4-Lane 入向 ACL 与 EtherType 硬件过滤**：
    - 提取报文的 EtherType、VLAN、IPv4/IPv6 五元组字段，与 `ETHERTYPE_FILTER` 表及 4 通道 ACL 规则表比对，执行丢弃、强制重映射队列或捕获上送 CPU 动作。
 3. **Extended VLAN 转换 (`COP5`) 与出向 VLAN 过滤 (`COP2`)**：
-   - 将报文的タグ状态（Untagged / Single-Tagged / Double-Tagged）送入 `COP5`（`EXT`）检索 `EXTENDED_VLAN`（ID 41）、`VLAN_RULE`（ID 42）与 `VLAN_TREATMENT`（ID 43），执行上行 VLAN 标签压入（如 QinQ S-Tag 封装）、VID 翻译或 PCP 重映射。
+   - 将报文的标签状态（Untagged / Single-Tagged / Double-Tagged）送入 `COP5`（`EXT`）检索 `EXTENDED_VLAN`（ID 41）、`VLAN_RULE`（ID 42）与 `VLAN_TREATMENT`（ID 43），执行上行 VLAN 标签压入（如 QinQ S-Tag 封装）、VID 翻译或 PCP 重映射。
 4. **FID 确定 (`COP0`) 与源 MAC 硬件自动学习 (`COP1`)**：
    - `COP0`（`FID`）根据桥接索引与转换后的 VID 查找 `FID_ASSIGNMENT`（ID 1）/ `FID_HASH`（ID 2），确定报文所属的二层转发域 `FID`。
    - `COP1`（`FWD`）以 `FID + SMAC` 检索 `SHORT_FWD_HASH`（ID 9）与 `SHORT_FWD_MAC`（ID 10）。若源 MAC 未命中或入向端口号发生迁移，且当前 Bridge Port 的学习计数器未达上限，硬件将新 `FID + SMAC -> BridgePort` 表项写入 `SHORT_FWD_MAC` 并复位老化时间戳。
 5. **上行 GEM 端口映射 (`COP3` / `COP4`)**：
-   - 根据 Bridge Port 映射模式（802.1p P-Mapper `PMAPPER` 表 ID 66、VID 映射或流分类结果），确定上行目标 `GPIX`（8-bit 内部 GEM 端口索引，`0`–`255`）及对应的 `TMU` 出向队列号 `QID`（`0`–`255`），再查询 `US_GEM_PORT`（ID 33，256 项 × 64-bit）获取关联的上行计量器 ID 与加密标志。
+   - 根据 Bridge Port 映射模式（802.1p P-Mapper `PMAPPER` 表 ID 66、VID 映射或流分类结果），确定上行目标 `GPIX`（8-bit 内部 GEM 端口索引，`0`–`255`）及对应的 `TMU` 出向队列号 `QID`（`0`–`255`）。`US_GEM_PORT`（ID 33，256 项 × 64-bit）提供上行端口属性；不能把下行 GEM AES 解密配置当作上行加密能力。
 6. **TBM 双桶三色流量监管 (`0x1D600700`)**：
    - 若 Bridge Port、VLAN 或上行 GEM Port 绑定了流量计量器（Meter），`PE` 向硬件 `TBM`（Token Bucket Meter，物理基址 `0x1D600700`）发起计量请求。
    - `TBM` 硬件支持 512 个单桶或 256 对双桶计量器（CIR/CBS 承诺桶与 PIR/PBS 峰值桶），兼容 RFC 2698（trTCM）与 RFC 4115（MEF 色盲/色敏模式）。`TBM` 根据当前桶水位与报文长度即时扣除令牌，返回报文颜色（Green / Yellow / Red）；Red 报文直接标记丢弃或降级，Green/Yellow 颜色随描述符传递至 `MERGE` 与 `TMU`。
@@ -93,7 +93,7 @@ flowchart TD
 - **常规出向端口 (`rEPN`，Regular Egress Port)**：承载该 T-CONT 下的普通优先级与加权轮询（WRR）业务流量。
 - **抢占出向端口 (`pEPN`，Preempting Egress Port)**：承载该 T-CONT 下的高优先级低时延流量，可在 GEM 分片边界抢占同一 T-CONT 内正在发送的常规帧。
 
-在 `TMU` 内部，256 条出向队列通过 128 个分级调度器块（Scheduler Block `SB 0..127`）汇聚至各 T-CONT 的 `EPN`（顶层 T-CONT 调度块编号遵循 `SB_ID = 93 + EPN` 固定映射关系）：
+在 `TMU` 内部，256 条出向队列通过 128 个分级调度器块（Scheduler Block `SB 0..127`）汇聚至各 T-CONT 的 `EPN`（顶层 T-CONT 调度块编号遵循 `SB_ID = 93 + T-CONT 索引` 的驱动预留关系）：
 1. 每个调度块具有 8 个输入叶子（Leaf `0..7`），各叶子可独立配置为 SP（Strict Priority，Level `0..7`）或相同优先级下的 WRR 权重（Weight `1`–`1023`）。
 2. 任意出向队列或调度块输出均可挂载 256 个硬件双桶整形器（Token Bucket Shaper `TBS 0..255`）之一；当整形桶令牌不足时，硬件暂时挂起该队列或调度分支的参与资格，直至令牌恢复。
 
@@ -107,9 +107,9 @@ flowchart TD
 
 | 字节偏移 | 寄存器/表名 | 宽度与项数 | 位域与功能说明 |
 | --- | --- | --- | --- |
-| `0x0000` | `ctrl` | 32-bit | `ACT`（bit 0）：激活 `OCTRLG` 状态机；`TCRP`（bit 1）：T-CONT 报告模式 |
-| `0x0004` | `cfg0` | 32-bit | `GTCFIFOTHRES`（bits 8:0）：向 `GTC` TX FIFO 写入的背压水位阈值；`IDLELEN`（bits 19:16）：GEM Idle 帧模式字长度；`IBS`（bit 24）：帧间突发同步控制 |
-| `0x0008` | `cfg1` | 32-bit | `GEMPLSIZE`（bits 11:0）：最大单次 GEM 净荷切片长度（上限 `4095` 字节）；`TXPCNTFRAG`（bit 16）：分片计数模式；`TC0GTCFIFOTHRES`（bits 26:24）：T-CONT 0 专用 FIFO 水位 |
+| `0x0000` | `ctrl` | 32-bit | `ACT`（bit 0）：激活 `OCTRLG` 状态机；`TCRP`（bit 16）：T-CONT 报告模式 |
+| `0x0004` | `cfg0` | 32-bit | `GTCFIFOTHRES`（bits 31:24）：向 `GTC` TX FIFO 写入的背压水位阈值；`IDLELEN`（bits 21:16）：GEM Idle 帧模式字长度；`IBS`（bits 14:0）：按头文件的接口突发配置字段解释 |
+| `0x0008` | `cfg1` | 32-bit | `GEMPLSIZE`（bits 11:0）：最大单次 GEM 净荷切片长度（上限 `4095` 字节）；`TXPCNTFRAG`（bit 16）：分片计数模式；`TC0GTCFIFOTHRES`（bit 17）：T-CONT 0 专用 FIFO 水位 |
 | `0x000C` | `dctrl` | 32-bit | `FQ`（bit 0）：已发送 `SSB0` 段归还至 `FSQM` 的空闲队列号（0 或 1） |
 | `0x0010` | `dbrudbg` | 32-bit | 软件调试注入的 DBRu 报告值 |
 | `0x0040`–`0x007C` | `idleframe[0..15]` | 16 × 32-bit | 无业务发送时填充带宽授权的 64 字节 GEM Idle 净荷模板 |
@@ -132,9 +132,9 @@ flowchart TD
    - `OCTRLG` 优先检查 `pEPN` 是否有待发报文；若无，则从 `rEPN` 拉取描述符（含 `HeadLSA`、`PDU_LEN`、`GPIX`）。
    - 用 8-bit `GPIX` 查找 `gpixtable[GPIX]` 获得 12-bit `Port-ID`。
    - 比较当前报文剩余字节数 `REM_LEN`、单帧上限 `cfg1.GEMPLSIZE` 以及本次 BWMAP 授权窗口剩余可用字节数 `GRANT_REM`：
-     - 若 `GRANT_REM >= REM_LEN + 5`：整帧或末分片可在当前授权窗口内发完。硬件构造 5 字节 GEM 头部（`PLI = REM_LEN`，`Port-ID = GPID`，`PTI = 3'b001` 表示末分片，计算 13-bit `HEC`），从 `SSB0` 按 `LLT` 链读出全部剩余数据并向 `FSQM` 归还已读完的 64 字节段。
+     - 若净可用空间与 `GEMPLSIZE` 均允许容纳末片（示意条件 `GRANT_REM >= REM_LEN + 5`）：整帧或末分片可在当前授权窗口内发完。硬件构造 5 字节 GEM 头部（`PLI = REM_LEN`，`Port-ID = GPID`，`PTI = 3'b001` 表示末分片，计算 13-bit `HEC`），从 `SSB0` 按 `LLT` 链读出全部剩余数据并向 `FSQM` 归还已读完的 64 字节段。
      - 若 `5 < GRANT_REM < REM_LEN + 5`：当前授权窗口不足以容纳整帧，硬件在任意字节边界执行 GEM 切片，构造非末分片 GEM 头（`PLI = GRANT_REM - 5`，`Port-ID = GPID`，`PTI = 3'b000` 表示后续仍有分片），仅发出 `GRANT_REM - 5` 字节净荷，并保存该端口当前段内字节偏移与剩余长度，留待下次同 T-CONT 授权到达时继续发送。
-     - 若当前 T-CONT 队列为空或 `GRANT_REM <= 5`：`OCTRLG` 自动生成 5 字节 GEM Idle 帧头（`PLI = 0`，`Port-ID = 0xFFF`，`PTI = 0`，`HEC = 0x165`）及 `idleframe[]` 空闲净荷，填满剩余的授权时隙。
+     - 队列为空时由空闲模板填充；剩余不足完整头部时如何跨边界处理，不能由上述示意比较推导。FEC、突发开销及硬件预取同样影响真实可用字节数。
 
 ---
 
@@ -148,5 +148,11 @@ flowchart TD
 2. **上行扰码与 RS(255,239) FEC 编码**：
    - 若授权 `Flags.Use_FEC` 或全局上行 FEC 使能位置位，`GTC` 对突发帧净荷按 239 字节数据块计算 16 字节 Reed-Solomon 校验码（末块采用缩短码），并执行 `x^7 + x^6 + 1` 自同步扰码。
 3. **均衡时延 (`EqD`) 触发与激光器突发偏置控制**：
-   - `GTC` 综合下行帧起始时刻、测距获得的均衡时延寄存器（粗粒度字偏移与比特级微调）以及授权中的 `SStart`、`SStop` 字节偏移，驱动 `PMA` 发送 FIFO（`gpon_tx_slice_pdi_fifo`，偏移 `+0x20C`）与激光器门控寄存器（`gpon_tx_slice_pdi_laser`，偏移 `+0x210`）。
+   - `GTC` 综合下行帧起始时刻、测距获得的均衡时延寄存器（粗粒度字偏移与比特级微调）以及授权中的 `SStart`、`SStop` 字节偏移，驱动 `PMA` 发送控制中的 `LASER_ENABLE`（`+0x20C`）与 `LASER_BITDELAY`（`+0x210`）。
    - 在突发数据比特移出前，硬件按配置的提前量 `nLaserEnStartExt` / `nLaserOffset` 提前拉高 `Burst_Enable` 信号开启 BOSA 激光器偏置与调制电流源；在突发末比特移出后，按延后量 `nLaserEnEndExt` 关断激光器电流，使非授权时隙内光功率处于关断基底以下。
+
+## 本地依据与适用范围
+
+`bsp/modules/onu/drv_onu_reg_ictrll.h`、`drv_onu_reg_octrlg.h`、`drv_onu_reg_gtc.h` 与 `include/drv_onu_resource_gpe.h`。授权/分片条件是示意，不能用来替代完整硬件状态机。
+
+上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

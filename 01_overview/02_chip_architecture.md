@@ -12,7 +12,7 @@ Lantiq Falcon（PEB/PEF 98035）采用控制平面与数据平面物理分离的
 | :--- | :--- | :--- | :--- | :--- |
 | **MIPS 34Kc VPE0** | MIPS32r2 + MT ASE（绑定 TC0） | 400 MHz（可配置 `SYS1_CPU0CC.CPUDIV=1` 降至 200 MHz） | 共享 32 KiB I-Cache、16 KiB D-Cache；访问 DDR2 与 `SBS0RAM` | 系统启动、外设初始化、OMCI 控制面协议栈、GPE 转发表项维护、光功率与温度校准闭环控制 |
 | **MIPS 34Kc VPE1** | MIPS32r2 + MT ASE（绑定 TC1） | 400 MHz（与 VPE0 同源） | 共享缓存；常驻 DDR2 尾部保留区或 `SBS0RAM` | 实时外设协处理，如 SFP SFF-8472 双地址（`0x50`/`0x51`）I2C 从机中断响应与光模块寄存器状态同步 |
-| **GPE 微码阵列 (PE0–PE5)** | 6 颗对称 32 位精简封包处理器 | 由 `STATUS_CONFIG.GPEFREQ` 设定（769.2 / 625 / 555.6 / 500 MHz） | 每核独立 16 KiB Code RAM + 12 KiB Data RAM（基址 `0x1D610000`–`0x1D660000`） | 逐包帧头解析、VLAN 标签压入/弹出/替换、PPPoE/IPv4/IPv6 头部改写、安全过滤与异常报文上送 |
+| **GPE 微码阵列 (PE0–PE5)** | 6 个 PE；资源头按 64 位指令/数据字描述容量，不能直接推定全部 ALU/寄存器宽度 | 由 `STATUS_CONFIG.GPEFREQ` 与 `SYS1_INFRAC` 配置（初始化代码不能替代频率实测） | 每核独立 16 KiB Code RAM + 12 KiB Data RAM（基址 `0x1D610000`–`0x1D660000`） | 逐包帧头解析、VLAN 标签压入/弹出/替换、PPPoE/IPv4/IPv6 头部改写、安全过滤与异常报文上送 |
 | **GPE 表项协处理器 (COP0–COP7)** | 8 个专用硬件状态机 / 微引擎 | 与 GPE 主时钟同步 | 挂载于 GPE 内部 CopLink 总线，拥有独立 Table RAM | 并行执行 FID 哈希查找、MAC 地址学习、L3 路由匹配、ACL 规则搜索、流量计量（Metering）与统计计数 |
 | **GPHY 内部控制器 (GPHY0/1)** | 2 颗内置 8051 架构微控制器 | 25 MHz / 内部 PLL 衍生时钟 | 通过 `SBS0CTRL` 窗口重映射 `SBS0RAM`（物理地址 `0x1F204000`）或内置 ROM | 控制片上 10/100/1000BASE-T 或 22F PHY 的 DSP 自适应均衡、自动协商状态机及 EEE 节能链路管理 |
 | **GTC / FSQM / TMU** | 纯硬件线速流水线 | GPON 线路时钟（2.488G / 1.244G）及 GPE 时钟 | `FSQM` 管理片上共享 Packet Buffer RAM 与 `PPL` 链表 | GTC 负责 GPON 成帧/解帧与 DBA 突发控制；FSQM 负责逻辑段（LSA）分配与释放；TMU 负责多队列 WFQ/SP 调度与令牌桶整形 |

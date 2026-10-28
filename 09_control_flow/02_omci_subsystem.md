@@ -1,12 +1,14 @@
 # 9.2 OMCI 与 MIB
 
-OMCI（ONT Management and Control Interface，ITU-T G.988）通道建立在专用管理 GEM 端口与默认 `T-CONT 0` 之上。硬件通过 `ICTRLG`（`0x1D450000`）的协议类型标识（`PDUT = 1`）与 `IQM Q8`（`0x1D410000`）隔离下行 OMCI 帧并上送主控 CPU，上行响应帧经 `ICTRLC`（`0x1D461000`）注入 `T-CONT 0` 调度队列并由 `OCTRLG`（`0x1D420000`）封装发送。OMCI 控制面解析管理实体（Managed Entity, ME）原语后，将其转换为对 `GTC`、`ICTRLG`、`OCTRLG`、`TMU`、`TBM`、`PE0`–`PE5` 及 `COP0`–`COP5` 硬件表的读写操作。
+本页的硬件通路是功能概览；用户态实现与 ABI 需区分原厂 7.5.1 二进制、还原源码的 3.10 分支及 7.3 配套。[驱动接口](03_driver_ioctl_interfaces.md) 给出源码接口头文件入口，[板级启动说明](../10_ma5671a_board_reference/03_board_tuning_and_env.md) 说明镜像版本对应关系。当前源码已包含扩展消息、Set-table、MCC 与 PM 处理，但源码存在和主机 fixture 通过不等于 OLT 互通验证。
+
+OMCI（ONT Management and Control Interface，ITU-T G.988）通道建立在专用管理 GEM 端口与默认 `T-CONT 0` 之上。硬件通过 `ICTRLG`（`0x1D450000`）的协议类型标识（`PDUT = 1`）与 `IQM Q7`（`0x1D410000`）隔离下行 OMCI 帧并上送主控 CPU，上行响应帧经 `ICTRLC`（`0x1D461000`）注入 `T-CONT 0` 调度队列并由 `OCTRLG`（`0x1D420000`）封装发送。OMCI 控制面解析管理实体（Managed Entity, ME）原语后，将其转换为对 `GTC`、`ICTRLG`、`OCTRLG`、`TMU`、`TBM`、`PE0`–`PE5` 及 `COP0`–`COP5` 硬件表的读写操作。
 
 ```mermaid
 flowchart TD
     GTC_RX["GTC 下行管理 GEM 帧 0x1DC00000"] -->|Port-ID 匹配| ICTRLG_OMCI["ICTRLG gpt 与 gpix_cfg PDUT=1 0x1D450000"]
-    ICTRLG_OMCI -->|写入 SSB0 并入队| IQM_Q8["IQM 管理队列 Q8 0x1D410000"]
-    IQM_Q8 -->|直通调度至 CPU EPN| OMCI_CORE["OMCI 协议引擎与 MIB 状态库"]
+    ICTRLG_OMCI -->|写入 SSB0 并入队| IQM_Q7["IQM 管理队列 Q7 0x1D410000"]
+    IQM_Q7 -->|直通调度至 CPU EPN| OMCI_CORE["OMCI 协议引擎与 MIB 状态库"]
     OMCI_CORE -->|生成响应帧与告警 AVC| ICTRLC_TX["ICTRLC CPU 注入控制器 0x1D461000"]
     ICTRLC_TX -->|TMU T-CONT 0 队列| OCTRLG_TX["OCTRLG tcmap TCIX=0 与 gpixtable 0x1D420000"]
     OCTRLG_TX -->|上行突发发送| GTC_TX["GTC 上行成帧器 0x1DC00000"]
@@ -19,6 +21,8 @@ flowchart TD
 
 ## 1. OMCI 帧硬件收发通道与报文格式
 
+队列编号依据 `bsp/modules/onu/include/drv_onu_resource_gpe.h`：`ONU_GPE_INGRESS_QUEUE_OMCI = 7`；Q8 是 `CPU_DS`（CPU 向 LAN 注入），不能与 PON 下行 OMCI 队列混淆。
+
 ### 1.1 硬件 OMCC 通道配置 (`GPIX 0` 与 `T-CONT 0`)
 
 在 PLOAM 进入 O3/O5 状态且 OLT 下发 `Configure-Port-ID` PLOAM 消息（Msg ID `0x0E`）指定 OMCC GEM `Port-ID` 后，硬件按以下寄存器链激活 OMCI 通道：
@@ -26,7 +30,7 @@ flowchart TD
 1. **下行接收通路**：
    - `GTC`（`0x1DC00000`）：在 Port-ID 过滤表（`downstr_gtc_rxpid_addr` / `wr`）中将 OMCC `Port-ID` 的 `VALID` 位置 `1`。
    - `ICTRLG`（`0x1D450000`）：将 `gpt[OMCC_PortID]` 配置为 `VALID = 1`、`GPIX = 0`；将 `gpix_cfg[0]` 的 `PDUT`（bits 2:0）设为 `1`（OMCI PDU 类型），并将 `maxsize[1]`（偏移 `0x34`）设为 `1984` 字节。
-   - 当 `PDUT == 1` 的 GEM 帧在 `SSB0`（`0x1F200000`）重组完毕后，`ICTRLG` 直接将其描述符压入 `IQM` 的专用管理队列 `Q8`，经 `SCE` 透传至 `TMU` 的 CPU 接收端口，触发主控接收中断。
+   - 当 `PDUT == 1` 的 GEM 帧在 `SSB0`（`0x1F200000`）重组完毕后，`ICTRLG` 直接将其描述符压入 `IQM` 的专用管理队列 `Q7`，经 `SCE` 透传至 `TMU` 的 CPU 接收端口，触发主控接收中断。
 2. **上行发送通路 (`FIO_GPE_OMCI_SEND`)**：
    - `OCTRLG`（`0x1D420000`）：`tcmap[ONU-ID]` 映射至 `TCIX = 0`（默认 `T-CONT 0`），`gpixtable[0]` 写入 12-bit `OMCC_PortID`。
    - 主控发送最大 1984 字节的 OMCI 帧时，通过 `ICTRLC` 将报文段写入 `SSB0`，生成携带 `GPIX = 0`、`PDUT = 1` 的描述符注入 `T-CONT 0` 绑定的高优先级抢占出向队列，并在节能状态机（PSM）处于睡眠态时触发硬件唤醒事件。
@@ -43,7 +47,7 @@ flowchart TD
 | `Bytes 4..5` | `ME Class` | 16-bit | 16-bit | 管理实体类编号（如 `262` = T-CONT，`268` = GEM Port CTP，`171` = Extended VLAN） |
 | `Bytes 6..7` | `ME Instance` | 16-bit | 16-bit | 管理实体实例 ID |
 | `Bytes 8..N` | `Content` | 32 Bytes (`Bytes 8..39`) | `2 + L` Bytes（含 16-bit 长度 `L`，最大 1966 B） | 属性掩码、属性值、MIB 上传分片或软件镜像段载荷 |
-| `Trailer` | `OMCI Trailer` | 8 Bytes (`Bytes 40..47`)：含 `0x00000028` 长度字段与 32-bit CRC | 4 Bytes：仅含 32-bit CRC | IEEE 802.3 CRC-32（初值 `0xFFFFFFFF`，生成多项式 `0x04C11DB7`） |
+| `Trailer` | `OMCI Trailer` | 8 Bytes (`Bytes 40..47`)：长度字段与 4 字节 MIC | 4 字节 MIC | MIC 不应笼统称为以太网 CRC；软件镜像下载的 CRC 又是独立的校验层 |
 
 ---
 
@@ -85,9 +89,11 @@ ME 7（实例 `0` 对应 SPI NOR 的 `image0` 分区，实例 `1` 对应 `image1
 1. **`Start Software Download`（Action 19）**：
    - 协商窗口大小 `Window Size = W`（每个窗口包含 `1`–`256` 个 Section，每个基准 Section 携带 31 字节镜像数据，单窗口最大 `256 × 31 = 7936` 字节）及待下载镜像总字节数。
 2. **`Download Section`（Action 20）**：
-   - 接收带递增 Section 号（`0`..`W-1`）的分片并填入 7936 字节窗口重组缓冲区（`FIO_GPE_OMCI_WINDOW_SET`）；仅末个 Section（`AK = 1`）触发 `Download Section Response` 确认整窗接收结果，若中间丢片则返回失败由 OLT 重传该窗口。
-   - 每收满一窗，将完整窗口数据流式写入非活动槽位对应的 MTD 分区（`image0` 偏移 `0x0C0000` 或 `image1` 偏移 `0x800000`）。
+   - 基准分片由 `omci_api_sw_image_download_section()` 重组，窗口容量为 `256 * 31` 字节。扩展消息在本树 `start_dl_action_handle()` 中采用固定窗口值 4，不能套用基准窗口解释。
+   - 当前还原实现先写下载暂存文件，再经平台后端校验与写入非活动镜像；不能将全部下载描述为每窗直接擦写 MTD。`omci_api_sw_window_set()` 也是用户态下载入口，不应仅凭名称写成必经 `FIO_GPE_OMCI_WINDOW_SET` 硬件 ioctl。
 3. **`End Software Download`（Action 21）**：
    - 对已接收的全部镜像字节流计算 IEEE 802.3 CRC-32（初值 `0xFFFFFFFF`，多项式 `0x04C11DB7`），与 `End Software Download` 携带的 32-bit `CRC-32` 及 uImage 头部校验和比对；校验通过后置位该槽位的 `Is Valid = 1`。
 4. **`Activate Software`（Action 22）与 `Commit Software`（Action 23）**：
    - `Activate` 更新非易失引导环境中的活动镜像槽位指针并触发系统复位；`Commit` 将目标槽位标记为 `Is Committed = 1`，固化默认启动分区。
+
+实现入口为 `lantiq-gpon/apps/omcid/src/me/omci_sw_image.c`、`libs/omci_api/src/me/omci_api_sw_image.c` 和 `omci_api_sw_image_falcon.c`。后者区分现代 initramfs 的槽位识别与 3.10 MTD 路径；分区按标签解析，不能跨内核固定 mtd 编号。7.3 的 sw_image fixture 仍有已记录失败，因此这里的流程说明不构成升级、回滚或断电恢复已通过验证的承诺。

@@ -1,5 +1,7 @@
 # 9.1 PLOAM 状态机
 
+本页给出状态机概览。消息号以 `bsp/modules/onu/include/drv_onu_ploam_interface.h` 为准，状态处理见 `drv_onu_ploam.c`，寄存器偏移见 `drv_onu_reg_gtc.h` 与 optic 的 `drv_optic_reg_pma.h`。O5 表示 PLOAM 激活成功，不能单独证明 OMCI 业务配置、UNI 链路或数据转发成功。
+
 `GTC`（物理基址 `0x1DC00000`）与 `PMA`（物理基址 `0x1DD00000`）协同实现 ITU-T G.984.3 定义的 GPON 物理层操作管理维护（PLOAM）通道及 O1–O7 激活状态机。硬件负责下行 13 字节 PLOAMd 帧的 CRC-8 校验、`ONU-ID` 过滤、上行 PLOAMu 突发插入、序列号请求随机延时退避以及均衡时延（`EqD`）字/比特级定时控制；状态机逻辑消费 `GTC` 接收 FIFO 与物理层告警中断（`LOS`、`LOF`），驱动从初始同步（O1）到正常工作态（O5）的寄存器重配置。
 
 ```mermaid
@@ -13,8 +15,8 @@ flowchart TD
     O5 -->|检测到 LOS 或 LOF 告警 - 关闭上行激光 启动 TO2| O6["O6 POPUP 掉线保持态 - 等待光信号恢复与 POPUP 消息"]
     O5 -->|收到 Deactivate_ONU-ID Msg 0x05| O2
     O5 -->|收到 Disable_Serial_Number 0xFF| O7
-    O6 -->|收到定向 POPUP Msg 0x0B 或 Swift_POPUP Msg 0x16 - 恢复原 EqD 时延| O5
-    O6 -->|收到广播 POPUP Msg 0x0B - 启动 TO1 重新测距| O4
+    O6 -->|收到定向 POPUP Msg 0x0C 或 Swift_POPUP Msg 0x16 - 恢复原 EqD 时延| O5
+    O6 -->|收到广播 POPUP Msg 0x0C - 启动 TO1 重新测距| O4
     O6 -->|TO2 超时仍未恢复同步| O1
     O7 -->|收到 Disable_Serial_Number 0x00 / 0xFE 解锁| O2
 ```
@@ -40,17 +42,17 @@ PLOAM 状态机在状态迁移过程中直接读写的 `GTC`（`0x1DC00000`）�
 
 | 模块与偏移 | 寄存器名称 | 状态机操作时机与硬件功能 |
 | --- | --- | --- |
-| `GTC + 0x00` | `downstr_gtc_istatus_1` | 提供 `LOF`（帧失步）、`LOS`（光信号丢失）、`PLOAM_RX`（接收 FIFO 非空）、`BER`（BIP 定时器到期）与 `SF`/`SD`（信号劣化）中断标志 |
-| `GTC + 0x0C` | `downstr_gtc_scon` | 下行同步状态机控制与状态（`HUNT` / `PRE_SYNC` / `SYNC`）及下行 FEC 译码状态 |
-| `GTC + 0x10` | `downstr_gtc_sfcnt` | 30-bit 下行超帧计数器（Superframe Counter），用于核对 `Key_Switching_Time` |
+| `GTC + 0x70` | `downstr_gtc_dsistat_1` | 下行中断状态；`GTC + 0x00` 为 `downstr_gtc_dsstat_1`，不是中断状态寄存器 |
+| `GTC + 0x34` | `downstr_gtc_scon` | 下行同步状态机控制 |
+| `GTC + 0x3C` | `downstr_gtc_sfcnt` | 下行超帧计数器，用于核对 `Key_Switching_Time` |
 | `GTC + 0x40`–`0x4C` | `downstr_aes_dekey[0..3]` | 128-bit AES 下行解密密钥寄存器（按 `Key[3]`..`Key[0]` 字序写入影子密钥缓冲区） |
 | `GTC + 0x50` | `downstr_aes_key_switch` | AES 密钥切换目标超帧号；当 `downstr_gtc_sfcnt` 到达该值时硬件自动启用新密钥 |
 | `GTC + 0x54` / `0x58` | `downstr_gtc_rxpid_addr` / `wr` | 4096 项下行 GEM Port-ID 属性表间接读写口（配置 `VALID` 与 `ENCRYPT_EN`） |
 | `GTC TX` | `upstr_gtc_onuid` | 本机 8-bit `ONU-ID` 寄存器（O1/O2 态置为 `0xFF`，O3 收到 `Assign_ONU-ID` 后更新） |
 | `GTC TX` | `upstr_gtc_delim` / `preamble` | 上行突发前导码（Type 1/2/3）长度、模式字节与 16/24-bit 定界符寄存器（O2 态配置） |
 | `GTC TX` | `upstr_gtc_offset` | 上行均衡时延（`EqD`）字/字节级粗调偏移与比特级细调偏移寄存器（O2 写初始值，O4/O5 写测距修正值） |
-| `PMA + 0x20C` | `gpon_tx_slice_pdi_fifo` | 发送数字 FIFO 相位与延时补偿寄存器（O4/O5 测距更新时同步复位或调整） |
-| `PMA + 0x210` | `gpon_tx_slice_pdi_laser` | 激光器突发使能门控寄存器（O1/O6/O7 关闭激光器，O3/O4/O5 使能突发门控） |
+| `PMA + 0x20C` | `gpon_tx_slice_pdi_laser_enable` | 激光使能配置 |
+| `PMA + 0x210` | `gpon_tx_slice_pdi_laser_bitdelay` | 激光使能位延时配置 |
 | `OCTRLG + 0x4000` | `tcmap[4096]` | 12-bit `Alloc-ID` 到 5-bit `TCIX` 映射表（O3 绑定默认 `Alloc-ID = ONU-ID` 至 `TCIX 0`，O5 处理 `Assign_Alloc-ID`） |
 
 ---
@@ -74,7 +76,7 @@ PLOAM 状态机在状态迁移过程中直接读写的 `GTC`（`0x1DC00000`）�
    - 每当 BWMAP 中出现针对序列号发现的授权且通过 `SN_Mask` 掩码过滤时，`GTC` 在随机退避延时后自动触发突发发送，上报 `Serial_Number_ONU`（Msg ID `0x01`，含 4 字节 Vendor-ID、4 字节 VSSN、随机延时值及 GEM 支持标志）。上行序列号请求累计次数计入 `sn_req_total`，达到阈值 `sn_req_thr` 时置位告警标志。
    - 当收到连续 3 次匹配本机 8 字节序列号的 `Assign_ONU-ID`（Msg ID `0x03`）时：
      - 将分配的 8-bit `ONU-ID` 写入 `GTC` 的 `upstr_gtc_onuid` / `downstr_gtc_onuid`。
-     - 在 `OCTRLG.tcmap[ONU-ID]` 中建立默认 `Alloc-ID`（等于 `ONU-ID`）到 `T-CONT 0`（承载 OMCI 与 PLOAMu）的硬件映射。
+     - 在 `OCTRLG.tcmap[ONU-ID]` 中建立默认 `Alloc-ID`（等于 `ONU-ID`）到 `T-CONT 0` 的硬件映射。OMCI 使用管理 GEM 通道；PLOAMu 属于物理层突发开销，不是由 T-CONT 承载的 GEM 业务。
      - 关闭 `GTC` 的序列号随机退避延时，启动测距超时定时器 `TO1`（缺省 10 s），迁入 **O4**。
 2. **O4 单播测距与 `EqD` 均衡时延锁定**：
    - 在 O4 态，`GTC` 切换为单授权响应模式（仅响应 `Alloc-ID == ONU-ID` 的测距授权并回送 `Serial_Number_ONU`）。
@@ -96,19 +98,19 @@ PLOAM 状态机在状态迁移过程中直接读写的 `GTC`（`0x1DC00000`）�
 | `Request_Password` | `0x09` | 1× | 读取 10 字节注册 `Password`，构造 `Password`（Msg ID `0x02`）向 `GTC` PLOAMu 队列连发 3 次 |
 | `Assign_Alloc-ID` | `0x0A` | 3× | 提取 12-bit `Alloc-ID`（`Data[0..1]`）与类型（`Data[2]`），在 `OCTRLG.tcmap[Alloc-ID]` 中使能或解除该 `Alloc-ID` 映射 |
 | `No_Message` | `0x0B` | — | 空闲填充消息，直接忽略 |
-| `BER_Interval` | `0x0C` | 3× | 将 32-bit BIP 累积间隔写入 `GTC` BER 定时器；定时器到期时读取下行 BIP 误码数并发送带 4-bit 序列号的 `REI`（Msg ID `0x08`） |
+| `BER_Interval` | `0x12` | 3× | 将 BIP 累积间隔写入 `GTC` BER 定时器；定时器到期时读取下行 BIP 误码数并发送 `REI` |
 | `Key_Switching_Time` | `0x13` | 3× | 在收到非重复确认帧时，将 30-bit 切换帧号写入 `downstr_aes_key_switch`（`0x1DC00050`），并将 128-bit 密钥按字序（`key[3]`..`key[0]`）写入 `downstr_aes_dekey[0..3]`（`0x1DC00040`–`0x1DC0004C`） |
 | `Extended_Burst_Length` | `0x14` | 3× | 更新 O3 与 O4/O5 阶段的 Type 3 前导码扩展字节数 |
 | `PON-ID` | `0x15` | 1× | 提取 7 字节 PON-ID 与发射光功率级供 OMCI 查询，不改变当前状态 |
-| `Request_Key` | `0x11` | 1× | 生成 128-bit 随机密钥，拆分为 Frag 0 与 Frag 1 两个 `Encryption_Key`（Msg ID `0x05`）分片各连发 3 次 |
+| `Request_Key` | `0x0D` | 1× | 生成 128-bit 随机密钥，拆分为 Frag 0 与 Frag 1 两个 `Encryption_Key`（Msg ID `0x05`）分片各连发 3 次 |
 
 ### 2.4 O6 (POPUP State) 与 O7 (Emergency Stop State)
 
 1. **O6 掉线保护与快速重入 (`POPUP` / `Swift_POPUP`)**：
    - 在 O5 态一旦检测到 `LOS` 或 `LOF` 中断，状态机立即关断上行突发发送，启动 `TO2` 定时器（缺省 100 ms）与 10 ms 恢复防抖定时器 `TO0`，进入 **O6**。
    - 若在 `TO2` 到期前光信号与下行帧同步恢复：
-     - 收到定向 `POPUP`（Msg ID `0x0B`，`ONU-ID` 为本机 ID）或广播 `Swift_POPUP`（Msg ID `0x16`）时：无需重新测距，直接恢复原 `EqD` 延时与 `OCTRLG` 上行通道，停止 `TO2` 并返回 **O5**。
-     - 收到广播 `POPUP`（Msg ID `0x0B`，`ONU-ID == 0xFF`）时：停止 `TO2`，启动 `TO1` 并转入 **O4** 执行重测距。
+     - 收到定向 `POPUP`（Msg ID `0x0C`，`ONU-ID` 为本机 ID）或广播 `Swift_POPUP`（Msg ID `0x16`）时：无需重新测距，恢复原 `EqD` 延时与上行通道，停止 `TO2` 并返回 **O5**。
+     - 收到广播 `POPUP`（Msg ID `0x0C`，`ONU-ID == 0xFF`）时：停止 `TO2`，启动 `TO1` 并转入 **O4** 执行重测距。
    - 若 `TO2` 超时仍未恢复同步，则退回 **O1**。
 2. **O7 紧急激光关断态**：
    - 在 O7 态，硬件锁定关闭 `PMA` 激光器驱动与 `GTC` 上行通道，忽略除 `Disable_Serial_Number` 之外的所有激活消息；仅当收到 `Data[0] == 0x00`（解除本机禁用）或 `0xFE`（解除全部 ONU 禁用）的 `Disable_Serial_Number`（3 次）时，才迁回 **O2**。

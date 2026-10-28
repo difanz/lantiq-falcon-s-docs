@@ -1,6 +1,6 @@
 # 6.5 DISP 与 MERGE
 
-DISP（Dispatcher）与 MERGE（Merger）包夹在 6 核可编程包处理集群（PE0–PE5，共 72 个硬件线程）的两端：DISP 从 IQM 取出报文描述符与包头分片并分发给空闲的 PE 线程，MERGE 收集完成分类与编辑的报文并按入向分配的保序标签（Sequence Number）重排序后送入 TMU。
+DISP（Dispatcher）与 MERGE（Merger）包夹在 6 核可编程包处理集群（PE0–PE5）的两端：DISP 从 IQM 取出报文描述符与包头分片并分发给空闲的 PE 线程，MERGE 收集完成分类与编辑的报文并按入向分配的保序标签（Sequence Number）重排序后送入 TMU。
 
 ## 地址空间与时钟域
 
@@ -16,10 +16,10 @@ flowchart LR
     IQM["IQM 0x1D410000"] -->|PDU 描述符| DISP["DISP 0x1D600500 - 分配保序标签 + 预取包头"]
     SSB0["SBS0RAM 0x1F200000"] -->|读取首部段| DISP
 
-    subgraph Cluster["PE0..PE5 集群 6 PEs x 3 VMs x 4 Threads"]
-        PE0["PE0 Threads 0..11"]
-        PE1["PE1..PE4 Threads 12..59"]
-        PE5["PE5 Threads 60..71"]
+    subgraph Cluster["PE0..PE5 集群：VM与线程标识"]
+        PE0["PE0"]
+        PE1["PE1..PE4"]
+        PE5["PE5"]
     end
 
     DISP --> PE0
@@ -55,16 +55,16 @@ flowchart LR
 
 ### `DISP.TCTRL0`（`0x004`）位域分配
 
-每个 PE（`PE0..PE5`）内部包含 3 个虚拟机（`VM0..VM2`），每个 VM 包含 4 个硬件线程（`Thread 0..3`）。`DISP.TCTRL0` 按 **VM 粒度** 控制分发使能（共 18 个 VM 位加 2 个 CPU 链路位）：
+每个 PE（`PE0..PE5`）内部包含 3 个虚拟机（`VM0..VM2`），寄存器注释使用 `Thread 0..3` 子标识。资源头每 PE 线程宏为 8、总线程宏为 56，不能据 VM 标识相乘宣称实现了 72 个物理线程。`DISP.TCTRL0` 按 **VM 粒度** 控制分发使能（共 18 个 VM 位加 2 个 CPU 链路位）：
 
 | 位域 | 位名称 | 对应硬件执行单元 |
 | :--- | :--- | :--- |
-| bits [2:0] | `T02`、`T01`、`T00` | `PE0` 的 `VM2`、`VM1`、`VM0`（Threads 0–11） |
-| bits [5:3] | `T12`、`T11`、`T10` | `PE1` 的 `VM2`、`VM1`、`VM0`（Threads 12–23） |
-| bits [8:6] | `T22`、`T21`、`T20` | `PE2` 的 `VM2`、`VM1`、`VM0`（Threads 24–35） |
-| bits [11:9] | `T32`、`T31`、`T30` | `PE3` 的 `VM2`、`VM1`、`VM0`（Threads 36–47） |
-| bits [14:12] | `T42`、`T41`、`T40` | `PE4` 的 `VM2`、`VM1`、`VM0`（Threads 48–59） |
-| bits [17:15] | `T52`、`T51`、`T50` | `PE5` 的 `VM2`、`VM1`、`VM0`（Threads 60–71） |
+| bits [2:0] | `T02`、`T01`、`T00` | `PE0` 的 `VM2`、`VM1`、`VM0` |
+| bits [5:3] | `T12`、`T11`、`T10` | `PE1` 的 `VM2`、`VM1`、`VM0` |
+| bits [8:6] | `T22`、`T21`、`T20` | `PE2` 的 `VM2`、`VM1`、`VM0` |
+| bits [11:9] | `T32`、`T31`、`T30` | `PE3` 的 `VM2`、`VM1`、`VM0` |
+| bits [14:12] | `T42`、`T41`、`T40` | `PE4` 的 `VM2`、`VM1`、`VM0` |
+| bits [17:15] | `T52`、`T51`、`T50` | `PE5` 的 `VM2`、`VM1`、`VM0` |
 | bit 18 | `T60` | CPU Link 0 |
 | bit 19 | `T61` | CPU Link 1 |
 
@@ -89,8 +89,14 @@ flowchart LR
 
 ## 硬件保序与回收机制
 
-1. **线程粒度使能**：与 `DISP.TCTRL0` 按 VM 控制不同，`MERGE.TCTRL0..2`（`0x004`–`0x00C`）为全部 72 个硬件线程（`T<pe><vm><thread>`，`pe = 0..5`，`vm = 0..2`，`thread = 0..3`）提供独立的单比特使能位。
+1. **线程粒度使能**：与 `DISP.TCTRL0` 按 VM 控制不同，`MERGE.TCTRL0..2`（`0x004`–`0x00C`）为寄存器编码中的线程标识（`T<pe><vm><thread>`，`pe = 0..5`，`vm = 0..2`，`thread = 0..3`）提供独立的单比特使能位。
 2. **乱序重排窗口**：不同 PE 线程处理不同复杂度报文（如单层 VLAN 透传与多层 VLAN + PPPoE + 组播复制）的耗时不同。先执行完的线程将修改后的包头段写回 `SBS0RAM`，并将输出描述符提交给 MERGE。MERGE 内部维护按保序标签索引的重排序缓冲，等待序号更早的报文完成后，按 DISP 分发时的先后顺序向 TMU 发起入队请求。
 3. **硬件超时保护与段回收**：
    - 若某报文在 PE 线程中被判定为丢弃，MERGE 递增 `DISCARDCOUNTER`（`0x014`），并通过 `FSQMQ`（`0x018`）通道将该报文的 `HLSA`–`TLSA` 链表直接返还给 FSQM 回收。
    - 若某个线程因异常挂死导致保序窗口阻塞超过硬件看门狗门限（且 `CTRL.TIMEOUTDEACT == 0`），MERGE 触发超时中断并跳过该序号，防止整个数据面锁死。
+
+## 本地依据与适用范围
+
+`bsp/modules/onu/drv_onu_reg_disp.h`、`drv_onu_reg_merge.h`、`drv_onu_reg_pctrl.h` 与 `include/drv_onu_resource_gpe.h`。控制寄存器中的 VM/线程名字不能直接乘成已实现的物理线程数量。
+
+上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

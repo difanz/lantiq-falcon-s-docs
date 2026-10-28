@@ -120,3 +120,9 @@
 | `tse5.bin` | `Version 4.54` | `EXT TSE Micro Program` | `3.8` | `Schaefer, Brunnbauer, Linortner` | `Implements the microcode for the TSE5 coprocessor.` |
 
 六份微码反汇编文件（`tse0.s`–`tse5.s`）的全部伪指令与每条 16 位微码指令的逐行详解见 [5.8 TSE 微码固件反汇编逐行详解（tse0.s – tse5.s）](08_tse_firmware_disassembly.md)。
+
+## 本地依据与适用范围
+
+`bsp/modules/onu` 中 `tse_load`、`tse_createheader`、`cop_code_set` 及 `extracted/rootfs/lib/firmware/sfu/tse*.bin`。容器记录地址、COP 内部索引与指令 PC 是三个不同单位。
+
+上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

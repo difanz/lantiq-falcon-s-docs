@@ -34,7 +34,7 @@ source_suffix = {
 
 master_doc = 'index'
 language = 'zh_CN'
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', '**/README.md', 'README.md']
+exclude_patterns = ['_build', '.venv', 'venv', 'Thumbs.db', '.DS_Store', '**/README.md', 'README.md']
 
 html_theme = 'lumina'
 html_baseurl = 'https://difan.org.cn/soc/lantiq-falcon-s/'

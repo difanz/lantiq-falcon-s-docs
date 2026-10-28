@@ -8,11 +8,11 @@ Falcon SoC 片上集成三套具有相同数字控制架构的开关电源控制
 
 | 硬件模块 | 物理基址 | KSEG1 基址 | 地址空间大小 | 用途说明 |
 | :--- | :--- | :--- | :--- | :--- |
-| `DCDC_CORE` | `0x1E803000` | `0xBE803000` | `0x00000408` | 1.0V 数字核心电源（Step-Down Buck） |
-| `DCDC_DDR` | `0x1E804000` | `0xBE804000` | `0x00000408` | DDR2 / 接口电源（Step-Down Buck） |
-| `DCDC_APD` | `0x1E805000` | `0xBE805000` | `0x00000408` | 光接收机 APD 高压偏置电源（Step-Up Boost） |
+| `DCDC_CORE` | `0x1E803000` | `0xBE803000` | `0x00000400`（基址头文件公布的映射大小） | 1.0V 数字核心电源（Step-Down Buck） |
+| `DCDC_DDR` | `0x1E804000` | `0xBE804000` | `0x00000400`（基址头文件公布的映射大小） | DDR2 / 接口电源（Step-Down Buck） |
+| `DCDC_APD` | `0x1E805000` | `0xBE805000` | `0x00000400`（基址头文件公布的映射大小） | 光接收机 APD 高压偏置电源（Step-Up Boost） |
 
-每个寄存器占用 32-bit 地址槽位，有效数据位位于低 8 位（bits [7:0]），仅尾部的振荡器配置与状态寄存器（`0x400`、`0x404`）为 16-bit 宽。
+每个寄存器占用 32-bit 地址槽位，有效数据位位于低 8 位（bits [7:0]），下文还列出头文件的振荡器尾部字段（`0x400`、`0x404`），它们超出基址头公布的 `0x400` 映射大小；实际映射/访问范围需单独核对，不能直接按结构尾部推定窗口扩大。
 
 ```mermaid
 flowchart LR
@@ -59,14 +59,14 @@ flowchart LR
 | `0x080` / `0x084` | `PDI_LATCH_CONTROL` | `LATCH_CONTROL` (bits [6:0]) | 寄存器阴影锁存控制（及 `_NOAUTO` 窗口） |
 | `0x088` | `PDI_CAP_CLK_CNT` | `CARD_CNT` (bits [7:0]) | 电容时钟计数读数 |
 | `0x08C` | `PDI_MDLL_DIVIDER` | `DIVIDER` (bits [2:0]) | MDLL 反馈分频比配置 |
-| `0x400` | `OSC_PDI_OSC_CONF` | `OSC` (bits [15:0]) | 内部振荡器配置寄存器 |
-| `0x404` | `OSC_PDI_OSC_STATUS` | `OSC_STAT` (bits [15:0]) | 内部振荡器状态寄存器 |
+| `0x400` | `OSC_PDI_OSC_CONF` | 已定义控制位在 bits [7:0] | 内部振荡器配置寄存器；见映射范围说明 |
+| `0x404` | `OSC_PDI_OSC_STATUS` | `CLK_FREQ` bit 0 | 内部振荡器状态寄存器；见映射范围说明 |
 
 ## 数字 PID 闭环与 APD 升压控制
 
 ### 1. 二阶数字 PID 传输函数
 
-每个 PWM 周期内，误差 ADC 在 `PDI_DELAY_DEGLITCH.ADC_DEL` 指定的相位采样输出电压反馈值，并与目标基准 `PDI_DIG_REF`（`0x02C`）相减得到当前误差 `e[n]`。数字滤波器利用 3 个 16-bit 有符号系数 `B0`（`0x000`/`0x004`）、`B1`（`0x008`/`0x00C`）、`B2`（`0x010`/`0x014`）按如下递推方程计算增量占空比：
+每个 PWM 周期内，误差 ADC 在 `PDI_DELAY_DEGLITCH.ADC_DEL` 指定的相位采样输出电压反馈值，并与目标基准 `PDI_DIG_REF`（`0x02C`）相减得到当前误差 `e[n]`。数字滤波器利用 3 个 16-bit 有符号系数 `B0`（`0x000`/`0x004`）、`B1`（`0x008`/`0x00C`）、`B2`（`0x010`/`0x014`）可用如下常见增量 PID 关系帮助理解；本地寄存器头只证明系数字段存在，尚未验证硬件的定点缩放、舍入、饱和位置与精确递推式：
 
 ```text
 u[n] = u[n-1] + B0 * e[n] + B1 * e[n-1] + B2 * e[n-2]
@@ -81,3 +81,9 @@ u[n] = u[n-1] + B0 * e[n] + B1 * e[n-1] + B2 * e[n-2]
 ### 3. APD 温度随动调压（`DCDC_APD`）
 
 雪崩光电二极管（APD）的击穿电压随环境温度升高而上升。在闭环运行期间，根据片上温度传感器测得的实时温度查表得到目标 APD 偏置电压对应的 `PDI_DIG_REF` 与最大占空比限制 `PDI_DUTY_CYCLE_MAX`，置位 `PDI_GENERAL.P_FREEZE` 更新参数后再解除冻结，从而维持 APD 倍增因子（M 值）恒定。
+
+## 本地依据与适用范围
+
+`bsp/modules/optic/drv_optic_reg_base.h`、`drv_optic_reg_dcdc.h` 与 `drv_optic_ll_dcdc_apd.c`。寄存器字段不构成输出电压、环路稳定性或校准质量的实测证明。
+
+上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

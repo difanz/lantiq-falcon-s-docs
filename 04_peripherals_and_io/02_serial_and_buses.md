@@ -37,7 +37,7 @@ Lantiq Falcon（PEB/PEF 98035）在 100 MHz `FPI` 外设总线上集成了三类
 ### 2. 波特率合成公式与轮询发送硬件序列
 
 * **波特率计算公式**：当 `ASC_CLC.RMC = 1`（`f_ASC = f_FPI = 100 MHz`）、`ASC_MCON.FDE = 1`（开启小数分频）且 `ASC_MCON.BRS = 0` 时，输出波特率由 `ASC_FDV`（`0`–`511`）与 `ASC_BG`（`0`–`8191`）共同决定：
-  * `Baudrate = (f_ASC * FDV) / (16 * 512 * (BG + 1))`
+  * `Baudrate = (f_ASC * FDV_effective) / (16 * 512 * (BG + 1))`；`FDV` 编码 `0` 表示有效分子 `512`，其余编码对应 `1..511`，不能把零编码代入得到零波特率。本地参考 `ref/VOLTE4GFAX/uboot/u-boot-2010.06/drivers/serial/lq_asc.c:serial_divs()` 显式将分子 `512` 编码为 `0`。
   * 修改波特率时，硬件要求先向 `ASC_MCON` 清除位 `[15]` `R`（暂停波特率发生器），写入新的 `ASC_FDV` 与 `ASC_BG` 后，再将 `ASC_MCON.R` 置 `1`。
 * **无中断轮询发送单字节时序**：
   1. 读取 `ASC_FSTAT`（`+0x48`），检查 `TXFFL` 字段（`(ASC_FSTAT & 0x3F00) >> 8`）是否为 `0`（等待发送 FIFO 排空）或检查 `TXFREE` 字段（`(ASC_FSTAT & 0x3F000000) >> 24`）大于 `0`。

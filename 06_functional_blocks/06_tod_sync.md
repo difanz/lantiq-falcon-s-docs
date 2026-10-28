@@ -8,7 +8,7 @@ TOD 寄存器窗口位于物理地址 `0x1DEFFE00`（KSEG1 `0xBDEFFE00`），地
 
 时钟与引脚复用控制位于 `SYS_GPON`（`0x1DF00000`）：
 
-- `SYS_GPON.CLKS` 的 `TOD` 位（bit 12，`0x00001000`）：控制 TOD 模块时钟与激活。
+- `SYS_GPON.CLKS` 的 `TOD` 位（bit 12，`0x00001000`）：反映 TOD 时钟状态；开启/激活需分别操作 `CLKEN` / `ACT`。
 - `SYS_GPON.VCC`（Voice Clock Control）：控制 NTR 8 kHz 基准输出使能与分频（`NTR8KEN` bit 8、`NTREN` bit 7、`NTRFS` bits [2:0] 支持 8 kHz 至 8192 kHz 输出频率选择）。
 
 ```mermaid
@@ -55,5 +55,11 @@ flowchart LR
 1. OLT 通过 OMCI（如脉冲时间同步管理实体）下发未来某一超帧计数值 `SFC_target`（30-bit，`< 2^30`）对应的标准时间 `(Sec, Nanosec)`。
 2. 结合测距均衡时延（EqD）、光纤传播时延与内部固定流水线偏置（以皮秒 `ps` 为单位的有符号修正量 `tod_offset_ps`），计算本地在 `SFC_target` 超帧边界应当装载的修正时间 `(Sec_corr, Nanosec_corr)`。
 3. 将 `Nanosec_corr` 拆分为 `RLDNSHI` 与 `RLDNSLO` 写入 `RLDNS`（`0x010`），将 `Sec_corr` 写入 `RLDS`（`0x014`），最后将 `SFC_target` 写入 `SFCC`（`0x018`）。
-4. 当下行 GTC 的超帧计数器 `GTC_SFCNT`（`0x1DC0003C`）递增至等于 `SFCC` 的超帧起始沿时，TOD 硬件在单拍内将 `RLDS` 与 `RLDNS` 原子锁存至工作计数器 `TCS`（`0x024`）与 `TCNS`（`0x020`），完成亚微秒级对齐。
+4. 当下行 GTC 的超帧计数器 `GTC_SFCNT`（`0x1DC0003C`）递增至等于 `SFCC` 的超帧起始沿时，TOD 硬件在单拍内将 `RLDS` 与 `RLDNS` 原子锁存至工作计数器 `TCS`（`0x024`）与 `TCNS`（`0x020`），执行预装载；实际同步误差还依赖偏移补偿与板级测量，不能由寄存器分辨率推出。
 5. 当需要输出串口时间报文（如 NMEA/TOD 字符串）时，使能 `IRNEN.PPS` 或 `IRNEN.PPSDEL` 中断，在秒脉冲触发或延迟 `CFG.INTDEL × 100 µs` 后读取 `TCS` 更新下一秒的时间报文。
+
+## 本地依据与适用范围
+
+`bsp/modules/onu/drv_onu_reg_tod.h`、TOD 低层驱动及 `bsp/modules/optic/drv_optic_reg_sys_gpon.h`。本板是否引出/启用 PPS、NTR 与串口时间输出需查 pinmux 和运行配置。
+
+上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。
