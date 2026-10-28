@@ -1,6 +1,6 @@
 # 9.2 OMCI 与 MIB
 
-本页的硬件通路是功能概览；用户态实现与 ABI 需区分原厂 7.5.1 二进制、还原源码的 3.10 分支及 7.3 配套。[驱动接口](03_driver_ioctl_interfaces.md) 给出源码接口头文件入口，[板级启动说明](../10_ma5671a_board_reference/03_board_tuning_and_env.md) 说明镜像版本对应关系。当前源码已包含扩展消息、Set-table、MCC 与 PM 处理，但源码存在和主机 fixture 通过不等于 OLT 互通验证。
+本页说明 OMCI 管理通道如何连接主控处理器与数据通路。管理实体表达业务配置，主控负责将配置转换为端口、队列、调度和转发表设置。硬件通道就绪、协议消息可达与业务互通是不同的运行条件，应分别检查。
 
 OMCI（ONT Management and Control Interface，ITU-T G.988）通道建立在专用管理 GEM 端口与默认 `T-CONT 0` 之上。硬件通过 `ICTRLG`（`0x1D450000`）的协议类型标识（`PDUT = 1`）与 `IQM Q7`（`0x1D410000`）隔离下行 OMCI 帧并上送主控 CPU，上行响应帧经 `ICTRLC`（`0x1D461000`）注入 `T-CONT 0` 调度队列并由 `OCTRLG`（`0x1D420000`）封装发送。OMCI 控制面解析管理实体（Managed Entity, ME）原语后，将其转换为对 `GTC`、`ICTRLG`、`OCTRLG`、`TMU`、`TBM`、`PE0`–`PE5` 及 `COP0`–`COP5` 硬件表的读写操作。
 
@@ -21,7 +21,7 @@ flowchart TD
 
 ## 1. OMCI 帧硬件收发通道与报文格式
 
-队列编号依据 `bsp/modules/onu/include/drv_onu_resource_gpe.h`：`ONU_GPE_INGRESS_QUEUE_OMCI = 7`；Q8 是 `CPU_DS`（CPU 向 LAN 注入），不能与 PON 下行 OMCI 队列混淆。
+管理通道使用的入向队列为 Q7；Q8 是 CPU 向 LAN 注入的下行队列，不能与 PON 下行 OMCI 队列混淆。这些编号属于所述数据通路配置，不是 OMCI 协议的通用规定。
 
 ### 1.1 硬件 OMCC 通道配置 (`GPIX 0` 与 `T-CONT 0`)
 
@@ -31,7 +31,7 @@ flowchart TD
    - `GTC`（`0x1DC00000`）：在 Port-ID 过滤表（`downstr_gtc_rxpid_addr` / `wr`）中将 OMCC `Port-ID` 的 `VALID` 位置 `1`。
    - `ICTRLG`（`0x1D450000`）：将 `gpt[OMCC_PortID]` 配置为 `VALID = 1`、`GPIX = 0`；将 `gpix_cfg[0]` 的 `PDUT`（bits 2:0）设为 `1`（OMCI PDU 类型），并将 `maxsize[1]`（偏移 `0x34`）设为 `1984` 字节。
    - 当 `PDUT == 1` 的 GEM 帧在 `SSB0`（`0x1F200000`）重组完毕后，`ICTRLG` 直接将其描述符压入 `IQM` 的专用管理队列 `Q7`，经 `SCE` 透传至 `TMU` 的 CPU 接收端口，触发主控接收中断。
-2. **上行发送通路 (`FIO_GPE_OMCI_SEND`)**：
+2. **上行发送通路**：
    - `OCTRLG`（`0x1D420000`）：`tcmap[ONU-ID]` 映射至 `TCIX = 0`（默认 `T-CONT 0`），`gpixtable[0]` 写入 12-bit `OMCC_PortID`。
    - 主控发送最大 1984 字节的 OMCI 帧时，通过 `ICTRLC` 将报文段写入 `SSB0`，生成携带 `GPIX = 0`、`PDUT = 1` 的描述符注入 `T-CONT 0` 绑定的高优先级抢占出向队列，并在节能状态机（PSM）处于睡眠态时触发硬件唤醒事件。
 
@@ -55,11 +55,11 @@ flowchart TD
 
 在 OMCI MIB 复位（MIB Reset，ME 2 `ONT Data`）或冷启动加载静态初期 MIB 配置文件（`/etc/mibs/*.ini`）时，控制面依次对 GPE 硬件执行以下基线初始化：
 
-1. **硬件资源能力查询 (`FIO_GPE_CAPABILITY_GET`, 28 B)**：
-   - 读取芯片支持的硬件表容量上限：最大 `256` 个 GEM 端口（`GPIX 0..255`）、`32` 个 T-CONT（`TCIX 0..31`）、`256` 条 `TMU` 出向队列、`128` 个调度块及 `512` 个 `TBM` 计量器。
+1. **硬件资源能力查询**：
+   - 硬件资源包括 `256` 个 GEM 端口索引（`GPIX 0..255`）、`32` 个 T-CONT（`TCIX 0..31`）、`256` 条 `TMU` 出向队列和 `128` 个调度块。`TBM` 有 `512` 个单桶资源，按偶/奇索引配对后组成 `256` 组双桶计量器；不能将单桶数量当作双桶计量器数量。
 2. **ANI 侧共享异常流量计量器配置**：
    - 在 `TBM`（`0x1D600700`）中分配 1 个共享双桶计量器，配置承诺信息速率与峰值信息速率 `CIR = PIR = 320,000 bps`（40 KB/s），承诺突发尺寸与峰值突发尺寸 `CBS = PBS = 240,000 B`，模式设为 RFC 2698。
-   - 读取 176 字节 `PE` 全局常量表 `CONSTANTS`（ID 68），将分配到的计量器索引写入偏移 `+60`（Row 15 `ani_exception_meter_id`），将偏移 `+64`（Row 16 `ani_exception_meter_en`）置为 `1`，并通过 `FIO_GPE_SCE_CONSTANTS_SET` 广播写回 `PE0`–`PE5`，限制从 PON 侧上送 CPU 的异常协议帧总带宽。
+   - `PE` 全局常量表 `CONSTANTS_TABLE`（ID 64）包含 51 个 32 位字。异常计量器配置位于 Row 13：bits 8:0 保存桶索引，bit 9 是使能位；主控将该配置写入 `PE0`–`PE5`，限制从 PON 侧上送 CPU 的异常协议帧总带宽。硬件表项与主控侧管理数据有不同的字段排列，不能把管理数据的字节偏移直接当作 PE 表行号。
 
 ---
 
@@ -70,15 +70,15 @@ OLT 通过 OMCI `Create`、`Set`、`Delete` 原语配置业务通路时，各管
 | ME Class | 管理实体名称 | 目标硬件模块与表 ID | 硬件寄存器与表项联动过程 |
 | --- | --- | --- | --- |
 | **ME 262** | `T-CONT` | `OCTRLG` (`0x1D420000`)<br/>`TMU` (`0x1D404000`) | 当 OLT 将 `Alloc-ID` 属性由 `0xFFFF` 修改为有效 12-bit 值时：<br/>1. 在 `OCTRLG.tcmap[Alloc-ID]` 中写入 5-bit `TCIX`（`0`–`31`）并置位 `VALID`。<br/>2. 在 `OCTRLG.tctable[TCIX]` 中绑定常规出向端口 `rEPN` 与抢占出向端口 `pEPN`。<br/>3. 在 `TMU` 中启用顶层调度器块 `SB_ID = 93 + EPN`。 |
-| **ME 268** | `GEM Port Network CTP` | `GTC` (`0x1DC00000`)<br/>`ICTRLG` (`0x1D450000`)<br/>`OCTRLG` (`0x1D420000`)<br/>`COP3` ID 25 / `COP4` ID 33 | 1. 分配空闲 8-bit `GPIX`（`1`–`255`）。<br/>2. 下行通道：置位 `GTC` Port-ID RAM 的 `VALID` 位，写 `ICTRLG.gpt[Port-ID] = GPIX` 与 `ICTRLG.gpix_cfg[GPIX]`，并在 `COP3` `DS_GEM_PORT` 表（ID 25）写入 64-bit 下行属性。<br/>3. 上行通道：写 `OCTRLG.gpixtable[GPIX] = Port-ID`，并在 `COP4` `US_GEM_PORT` 表（ID 33）写入 64-bit 上行属性（含关联的 `TMU` 队列与上行 `TBM` 计量器 ID）。 |
+| **ME 268** | `GEM Port Network CTP` | `GTC` (`0x1DC00000`)<br/>`ICTRLG` (`0x1D450000`)<br/>`OCTRLG` (`0x1D420000`)<br/>`COP3` ID 25 / `COP4` ID 33 | 1. 分配空闲 8-bit `GPIX`（`1`–`255`）。<br/>2. 下行通道：置位 `GTC` Port-ID RAM 的 `VALID` 位，写 `ICTRLG.gpt[Port-ID] = GPIX` 与 `ICTRLG.gpix_cfg[GPIX]`，并配置 `COP3` 的 `DS_GEM_PORT_TABLE`（ID 25，256 项，每项 **128-bit**）。个别属性片段的宽度不能代表完整表项宽度。<br/>3. 上行通道：写 `OCTRLG.gpixtable[GPIX] = Port-ID`，并配置 `COP4` 的 `US_GEM_PORT_TABLE`（ID 33，256 项，每项 **64-bit**）。 |
 | **ME 277**<br/>**ME 278** | `Priority Queue`<br/>`Traffic Scheduler` | `TMU` (`0x1D404000`) | 1. 配置 `TMU` 出向队列 `QID`（`0`–`255`）的最大段容量上限（最大 2304 段）及 Green/Yellow WRED 丢弃概率门限。<br/>2. 将队列挂载至对应 T-CONT 调度块（`SB 0..127`）的输入叶子，按 ME 属性设置 SP 优先级或 WRR 权重（`1`–`1023`）。 |
 | **ME 290** | `Traffic Descriptor` | `TBM` (`0x1D600700`)<br/>`TMU TBS` (`0x1D404000`) | 将 `SIR`（CIR）、`PIR`、`CBS`、`PBS` 及色盲/色敏模式（RFC 2698 / RFC 4115）换算为硬件令牌补充速率与桶容量，写入入向 `TBM` 计量器寄存器（`TBMTR0..3`、`TBMTC`）及出向 `TMU` 双桶整形器（`TBS 0..255`）。 |
-| **ME 45**<br/>**ME 47** | `MAC Bridge Service Profile`<br/>`MAC Bridge Port Config` | `PE` RAM `BRIDGE` (ID 69)<br/>`BRIDGE_PORT` (ID 65) | 1. 在 `BRIDGE` 表（ID 69）分配虚拟网桥索引并设置 MAC 学习总上限。<br/>2. 根据 `TP Type`（UNI、GEM IWTP、802.1p Mapper、IP Host）分配 `Bridge Port Index`（`0`–`87`），构造 128-bit `BRIDGE_PORT` 表项（含 `Word 3` 的 20 个控制位，如 `ena_ani_side`、`ena_src_mac_learning`、`ena_port_lock`）广播写入 `PE0`–`PE5`。 |
-| **ME 130** | `802.1p Mapper Service Profile` | `PE` RAM `PMAPPER` (ID 66) | 在 `PMAPPER` 表（ID 66，32 × 64-bit）中将 8 个 802.1p 优先级槽位（PCP `0`–`7`）分别映射至对应的上行 `GEM Interworking TP` 关联的 8-bit `GPIX`。 |
+| **ME 45**<br/>**ME 47** | `MAC Bridge Service Profile`<br/>`MAC Bridge Port Config` | `PE` RAM `BRIDGE_TABLE`（ID 76）<br/>`BRIDGE_PORT_TABLE`（ID 65） | `BRIDGE_TABLE` 有 8 项，每项 256-bit；`BRIDGE_PORT_TABLE` 有 88 项，每项 128-bit。主控关联虚拟网桥、桥端口及 UNI/GEM/IP Host 等终端，并配置转发、学习和 VLAN 处理。 |
+| **ME 130** | `802.1p Mapper Service Profile` | `PE` RAM `PMAPPER_TABLE`（ID 66） | 表容量为 **32 × 96-bit**，包含 8 路优先级到上行 GPIX 的映射。8 个 8-bit GPIX 仅是映射部分，不能据此将完整表项记为 64-bit。 |
 | **ME 84** | `VLAN Tagging Filter Data` | `PE` RAM `VLAN_START_ID` (ID 74)<br/>`COP2` ID 17 & ID 18 | 1. 在 `VLAN_START_ID`（ID 74）分配 12 槽连续段，将最多 12 个 16-bit VID 写入 `COP2` `VLAN` 表（ID 18）。<br/>2. 将 `Forwarding Operation`（`0x00`–`0x21`）映射为 `COP2` `TAGGING_FILTER` 表（ID 17）的 64-bit 过滤掩码，并把表索引填入关联 `BRIDGE_PORT.tag_filter_idx`。 |
 | **ME 171** | `Extended VLAN Tagging Operation` | `COP5` ID 41, ID 42, ID 43 | 将下发的 16 字节扩展 VLAN 规则项拆解为 64-bit `VLAN_RULE`（ID 42）与 64-bit `VLAN_TREATMENT`（ID 43），按双标签、单标签、无标签三段连续排序写入 `COP5`，并更新 `EXTENDED_VLAN`（ID 41）的 `base_ptr` 与三段结束指针，最后置位关联 `BRIDGE_PORT` 的 `ena_ing_ext_vlan` / `ena_egr_ext_vlan`。 |
 | **ME 309**<br/>**ME 310** | `Multicast Operations Profile`<br/>`Multicast Subscriber Config` | `COP1` ID 9 & ID 10<br/>`COP4` ID 34 & ID 35 | 使能 UNI 桥接端口上的 IGMP/MLD 硬件捕获模板（上送 CPU 解析 Join/Leave），并在 `COP1` `SHORT_FWD_MAC`（ID 10）或 `COP4` `LONG_FWD_IPV6`（ID 35）中动态维护组播组出向端口位图 `mc_port_map` 及源地址过滤表。 |
-| **ME 134** | `IP Host Config Data` | `PE` RAM `CONSTANTS` (ID 68)<br/>主机网络栈 | 将 IP Host 接口的 48-bit MAC 地址写入 `CONSTANTS` 表（ID 68）Row 17–20 以使能硬件本地 MAC 识别；当主机接口通过 DHCP 获取 IPv4 地址、掩码、网关与 DNS 时，触发属性变更通知（AVC）更新 ME 134 属性 `9`–`15`。 |
+| **ME 134** | `IP Host Config Data` | `PE` RAM `CONSTANTS_TABLE`（ID 64）<br/>主机网络栈 | 配置本地 MAC 识别与主机接口；当主机接口通过 DHCP 获取 IPv4 地址、掩码、网关与 DNS 时，触发属性变更通知（AVC）更新管理实体属性。主机地址数据与 PE 表项的映射应分别处理，不能按主控管理数据的行号直接访问硬件。 |
 
 ---
 
@@ -89,11 +89,11 @@ ME 7（实例 `0` 对应 SPI NOR 的 `image0` 分区，实例 `1` 对应 `image1
 1. **`Start Software Download`（Action 19）**：
    - 协商窗口大小 `Window Size = W`（每个窗口包含 `1`–`256` 个 Section，每个基准 Section 携带 31 字节镜像数据，单窗口最大 `256 × 31 = 7936` 字节）及待下载镜像总字节数。
 2. **`Download Section`（Action 20）**：
-   - 基准分片由 `omci_api_sw_image_download_section()` 重组，窗口容量为 `256 * 31` 字节。扩展消息在本树 `start_dl_action_handle()` 中采用固定窗口值 4，不能套用基准窗口解释。
-   - 当前还原实现先写下载暂存文件，再经平台后端校验与写入非活动镜像；不能将全部下载描述为每窗直接擦写 MTD。`omci_api_sw_window_set()` 也是用户态下载入口，不应仅凭名称写成必经 `FIO_GPE_OMCI_WINDOW_SET` 硬件 ioctl。
+   - 主控重组基准消息的镜像分片，最大窗口容量为 `256 * 31` 字节。扩展消息具有独立的长度与窗口协商，不能套用基准分片长度。
+   - 下载缓冲、校验与写入非活动镜像由主控协调；接收一窗不等于立即擦写 Flash。这一过程不属于 GPE 固有的报文转发功能。
 3. **`End Software Download`（Action 21）**：
    - 对已接收的全部镜像字节流计算 IEEE 802.3 CRC-32（初值 `0xFFFFFFFF`，多项式 `0x04C11DB7`），与 `End Software Download` 携带的 32-bit `CRC-32` 及 uImage 头部校验和比对；校验通过后置位该槽位的 `Is Valid = 1`。
 4. **`Activate Software`（Action 22）与 `Commit Software`（Action 23）**：
    - `Activate` 更新非易失引导环境中的活动镜像槽位指针并触发系统复位；`Commit` 将目标槽位标记为 `Is Committed = 1`，固化默认启动分区。
 
-实现入口为 `lantiq-gpon/apps/omcid/src/me/omci_sw_image.c`、`libs/omci_api/src/me/omci_api_sw_image.c` 和 `omci_api_sw_image_falcon.c`。后者区分现代 initramfs 的槽位识别与 3.10 MTD 路径；分区按标签解析，不能跨内核固定 mtd 编号。7.3 的 sw_image fixture 仍有已记录失败，因此这里的流程说明不构成升级、回滚或断电恢复已通过验证的承诺。
+镜像选择、下载存储和重启策略是板级启动管理职责，不是 SoC 自动完成的状态迁移。运行中应按分区标签识别目标槽位，并分别验证镜像校验、激活、提交和断电恢复；协议应答不能代替这些检查。

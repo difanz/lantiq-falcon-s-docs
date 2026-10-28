@@ -21,11 +21,11 @@ make check SPHINXBUILD=.venv/bin/sphinx-build
 
 HTML 入口为 `_build/html/index.html`。`make check` 强制重新读取源文件，启用缺失引用检查并将警告视为失败。普通增量构建使用 `make html`（同样传入 `SPHINXBUILD`）；Read the Docs 使用 `.readthedocs.yaml` 并在警告时失败。安装依赖需要网络；Mermaid 图的浏览器渲染也需要加载相应脚本。
 
-Sphinx 导航以 `index.md` 和各章 `index.md` 的 toctree 为准。README 是源码浏览入口，按配置不生成 HTML 页面。
+Sphinx 导航以 `index.md` 和各章 `index.md` 的 toctree 为准。README 是 Markdown 阅读入口，按配置不生成 HTML 页面。
 
-## 证据范围
+## 阅读范围
 
-原固件为 MA5671A image0（Linux 3.10.49 / SFP 7.5.3）。文中寄存器地址、原驱动行为、固件反汇编与板级配置应分别核对；恢复源码和 Linux 7.3 移植不能自动证明原固件行为或真机可启动。芯片功能存在也不代表 MA5671A 的封装、接线或固件已启用该功能。
+本手册先介绍 Falcon SoC 的处理单元、总线、寄存器与数据通路，再说明 MA5671A 的封装、接线和设备服务约定。芯片能力不等于板上已启用的功能；地址窗口也不等于可任意分配的内存。未确认的规格保持明确标注。
 
 ## 目录
 
@@ -58,7 +58,7 @@ Sphinx 导航以 `index.md` 和各章 `index.md` 的 toctree 为准。README 是
 - [5.5 SCE 硬件功能块详解（FID、FWD、TAG、TBL、MSF、EXT、TBM 与 PE 局部表）](05_coprocessors/05_sce_function_blocks.md)
 - [5.6 COP 16 位指令集](05_coprocessors/06_tse_cop_isa.md)
 - [5.7 TSE 微码容器与加载器](05_coprocessors/07_tse_firmware_format.md)
-- [5.8 TSE 微码固件反汇编逐行详解（`tse0.s` – `tse5.s`）](05_coprocessors/08_tse_firmware_disassembly.md)
+- [5.8 TSE 微码指令示例](05_coprocessors/08_tse_firmware_disassembly.md)
 - [5.9 GPHY 8051 协处理器架构与中断](05_coprocessors/09_gphy_8051_coprocessor.md)
 
 ### [6. 数据通路硬件模块](06_functional_blocks/README.md)
@@ -88,10 +88,10 @@ Sphinx 导航以 `index.md` 和各章 `index.md` 的 toctree 为准。README 是
 ### [9. 控制流与协议交互](09_control_flow/README.md)
 - [9.1 PLOAM 状态机](09_control_flow/01_ploam_statemachine.md)
 - [9.2 OMCI 与 MIB](09_control_flow/02_omci_subsystem.md)
-- [9.3 驱动 ioctl 与 VPE1 共享内存](09_control_flow/03_driver_ioctl_interfaces.md)
-- [9.4 硬件初始化序列、光路闭环校准与 DDM 刷新](09_control_flow/04_userspace_control_tools.md)
+- [9.3 硬件控制域与 SFP 设备服务](09_control_flow/03_driver_ioctl_interfaces.md)
+- [9.4 主控操作、光路校准与 DDM 刷新](09_control_flow/04_userspace_control_tools.md)
 
 ### [10. 附录：MA5671A 板级定制](10_ma5671a_board_reference/README.md)
 - [10.1 引脚映射与串口模式](10_ma5671a_board_reference/01_pinmux_and_sfp_mapping.md)
-- [10.2 falcon-sfp.dts 与启动脚本](10_ma5671a_board_reference/02_dts_and_board_config.md)
-- [10.3 U-Boot 环境与现代配套](10_ma5671a_board_reference/03_board_tuning_and_env.md)
+- [10.2 板级资源与启动职责](10_ma5671a_board_reference/02_dts_and_board_config.md)
+- [10.3 板级环境、存储与启动检查](10_ma5671a_board_reference/03_board_tuning_and_env.md)

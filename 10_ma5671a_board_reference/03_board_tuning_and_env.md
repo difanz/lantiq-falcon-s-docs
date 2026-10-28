@@ -1,65 +1,66 @@
-# 10.3 U-Boot 环境与现代配套
+# 10.3 板级环境、存储与启动检查
 
-环境项的用途可以从原厂脚本确定，但本次 image0 dump 不包含 U-Boot 和 uboot_env。以下描述接口与 geometry，不给出本板注册凭证、MAC、校准数据或可直接刷写的命令。
+板级环境保存链路模式、设备身份、光路校准和启动选择。环境项属于设备启动协议，不是 Falcon SoC 的寄存器；同一 SoC 的其他设备不必采用相同名称或布局。
 
-## 环境 geometry
+## 环境存储布局
 
-DT 将 uboot_env 放在 Flash `0x040000`，长度 `0x080000`。原厂 `extracted/rootfs/etc/init.d/fw_env.sh` 按 /proc/mtd 的标签查找设备：env size 固定 `0x10000`，erase size 取 /proc/mtd；冗余副本位于分区大小的一半。它只在配置不存在时生成，不能认为每次启动都会校验或更新已有配置。
+uboot_env 位于 SPI NOR 偏移 `0x040000`，分区长度 `0x080000`（512 KiB）。其中两个环境块各为 **64 KiB**，绝对偏移为 `0x040000` 与 `0x080000`；它们在分区内的相对偏移分别为 `0x0` 与 `0x40000`。环境块大小包含格式头，不能把整个分区解释成两个 256 KiB 环境块。
 
-当该分区 erasesize 为 `0x10000` 时，结果为：
+| 环境块 | 分区内偏移 | Flash 绝对偏移 | 块大小 | 对应擦除大小 |
+| --- | --- | --- | --- | --- |
+| 第一副本 | `0x0` | `0x040000` | `0x10000` | `0x10000` |
+| 第二副本 | `0x40000` | `0x080000` | `0x10000` | `0x10000` |
 
-```text
-# device          relative offset   env size   erase size
-/dev/<env-mtd>    0x0               0x10000    0x10000
-/dev/<env-mtd>    0x40000           0x10000    0x10000
-```
+运行中应按分区标签和大小识别环境设备，不固定使用某个 MTD 编号。访问环境前还应核对实际擦除大小；环境格式、冗余选择规则和校验必须与启动加载器一致。复制环境区不能代替对校准数据、身份字段和启动状态的分别确认。
 
-两个环境块绝对位置是 `0x040000`、`0x080000`，各 **64 KiB**；512 KiB 分区不是两个 256 KiB 环境块。块大小包含格式头。设备编号必须由标签解析，不能固定使用 mtd1。
+## 环境项与设备职责
 
-现代 `lantiq-gpon/rootfs/etc/init.d/S20uboot_env` 更严格：只接受唯一 uboot_env、分区大小 `0x80000`、erasesize `0x10000`，再原子生成这两行配置；不匹配便返回错误。它还以受限权限缓存环境，不能把缓存全文加入公开诊断或文档。
+| 环境项 | 用途与约束 |
+| --- | --- |
+| sgmii_mode | 选择 UNI 的 SGMII、快速 SGMII 或 SerDes 模式 |
+| asc0 | 0–3 的串口复用选择；实际方向和复用状态须另行确认 |
+| tx_fault_pin | 不能单凭该项存在就认为故障输出已使能 |
+| nSerial / nPassword | PLOAM 身份与认证信息，属于单设备配置 |
+| nDyingGaspEnable | 掉电告警配置，仍依赖硬件检测与发送条件 |
+| olt_type | 管理互通配置，不改变 SoC 的物理接口能力 |
+| ploam_emergency_stop_state | 紧急停止状态，影响激活和激光发送许可 |
+| goi_calibrated | 光路校准状态，影响运行保护策略 |
+| goi_config | 单板校准归档，不能与运行期校准配置文件混为一谈 |
+| mib_file / omci_iop_mask | 初始管理实体拓扑与互通策略 |
+| gDtiaGentEnable | 可选 DTI 维护服务的启用开关 |
 
-## 环境变量与使用者
+## UNI 模式选择
 
-| 项 | 原厂使用者 | 行为 |
+下表是设备环境项的含义，不是 SoC 统一的接口枚举。宿主端必须支持相容的串行速率和协商方式。
+
+| 值/别名 | 接口选择 | 配置意图 |
 | --- | --- | --- |
-| sgmii_mode | lib/falcon.sh、lan.sh | 选择 UNI SerDes 模式；sfp_eeprom.sh 的 bitrate_config 调用已注释 |
-| asc0 | lib/falcon.sh、pin_cfg.sh，其他 SFP 控制路径 | 0–3；pin_cfg.sh 中只生成限制列表，见引脚页 |
-| tx_fault_pin | pin_cfg.sh | 两个分支发送同一 optic 命令，不能当作启用 TX_Fault 的开关 |
-| nSerial / nPassword | onu.sh | PLOAM 序列号/密码；参数格式以工具解析器为准，不展示单板值 |
-| nDyingGaspEnable | onu.sh / gpon 配置 | gtc_dying_gasp_cfg_set；不是所有配置都直接来自 env |
-| olt_type | lib/falcon.sh、onu.sh | env 优先，缺失再读 UCI gpon；用于 GPE 初始化 |
-| ploam_emergency_stop_state | lib/falcon.sh、onu.sh | 传给 gtccs 的紧急停止标志 |
-| goi_calibrated | lib/falcon.sh、onu.sh | 校准状态影响 GTC watchdog |
-| goi_config | recover_goi.sh、goi_store_uboot.sh | 校准归档，不等同于 /etc/config/goi_config 的配置内容 |
-| mib_file | omcid.sh | env 指向的 /etc/mibs 文件存在才采用，否则使用 UCI/default |
-| omci_iop_mask | omcid.sh | env 优先，否则 UCI/default，传给 -i |
-| gDtiaGentEnable | load_dti_agent.sh | 必须为 true 才开 DTI TCP 9000 |
+| 1 / sgmii | SGMII | 自动速度，启用 SGMII MAC 自协商 |
+| 2 / sgmii_fast | SGMII | 固定 2.5 Gbit/s，关闭自协商 |
+| 3 / serdes | TBI SerDes | 1 Gbit/s，启用 SerDes 自协商 |
+| 4 / serdes_noaneg | TBI SerDes | 1 Gbit/s，关闭自协商 |
+| 5 / sgmii_fast_auto | TBI 自动检测 | 2.5 Gbit/s 配置并启用 SerDes 自协商 |
+| 未设置/不识别 | TBI 自动检测 | 自动速度；与显式值 5 的速度配置不同 |
 
-## sgmii_mode 的真实参数
+EEPROM 标称速率与实际 UNI 链路是不同的信息。不能假定修改 sgmii_mode 就会同步重写 EEPROM Byte12，也不能用 Byte12 推断当前链路速率；应观察实际链路、协商和误码状态。
 
-原厂 lan.sh 的 decode_sgmii_mode() 以 gpon_lan_phy_sgmii() 组合 mux、mode、speedmode 与 autoneg_mode，不能简化成一个 2–6 的“模式编号”。mux 固定为 4；speedmode 是三个命令参数。
+## 校准数据保全
 
-| env 值/别名 | mode | speedmode | autoneg_mode |
-| --- | --- | --- | --- |
-| 1 / sgmii | 3 (SGMII) | 0 0 0 | 1 |
-| 2 / sgmii_fast | 3 | 1 0 5 | 0 |
-| 3 / serdes | 14 (TBI_SERDES) | 1 0 4 | 3 |
-| 4 / serdes_noaneg | 14 | 1 0 4 | 0 |
-| 5 / sgmii_fast_auto | 15 (TBI_AUTODETECT) | 1 0 5 | 3 |
-| 未设置/不识别 | 15 | 0 0 0 | 3 |
+设备使用三张温度相关表、激光工作年龄和光路配置保存单板校准。环境中的校准归档以压缩数据加文本封装保存，恢复后用于光路初始化。归档内容、运行期参数和校准状态标志必须一致；仅设置“已校准”标志不能产生有效校准。
 
-未设置与值 5 的 speedmode 不同，不能写成完全等价。原厂 sfp_eeprom.sh 定义的 bitrate_config() 会对 2/5 写 Byte12=25，其他写 10，但 boot() 中该调用已注释，所以不能据此说启动时一定更新 EEPROM 速率。Byte12 也不是实际测得的链路速度；链路协商结果需要硬件验证。
+通用镜像不能替代每块板自己的光路数据。更换启动环境或存储内容时，应保全这些数据，并确认恢复出的表覆盖设备实际工作温区。
 
-## 校准归档
+## 主控与 VPE1 的内存约束
 
-原厂 goi_store_uboot.sh 依据 /etc/goiupgrade.conf 打包三张 CSV 表、etc/optic/goi_age、etc/config/goi_config，以 uuencode -m 转成文本，再把换行换成 @ 写入 env goi_config。recover_goi.sh 在 .goi_recovered 缺失时逆向解码恢复。这是本板校准保全机制，通用镜像不能替代每块板自己的校准内容。
+MA5671A 具有 64 MiB RAM。采用物理 `0x03F00000` 起、长度 1 MiB 的 VPE1 保留区时，主控操作系统必须避免分配该区；该划分是板级启动配置，不是处理器硬连线限制。主控还应区分物理地址和 KSEG0 地址，例如物理 `0x03F00000` 对应 KSEG0 `0x83F00000`。
 
-## 现代配套与启动验证
+VPE1 启动参数中的总内存容量与主控可分配内存不是同一数值。保留区、加载地址、入口地址和容量参数应相互一致；不能因为主控已启动，就假定协处理器没有覆盖其他内存。VPE1 的 SFP 共享服务布局见 [主控接口与共享内存](../09_control_flow/03_driver_ioctl_interfaces.md)。
 
-原厂模块/用户态是 Linux 3.10.49 + uClibc 的二进制基准。还原源码 linux-3.10.49 分支用于对照；Linux 7.3 则必须配套 kernel/、worktrees/linux-7.3/bsp、lantiq-gpon/ 的 linux-7.3 分支、目标工具链与打包配置。模块 ABI、动态加载器和共享库依赖均须匹配，不应混用原厂 ko 与 7.3 内核。
+## 启动检查
 
-7.3 DTS 用 reserved-memory 保留物理 `0x03F00000` 起的 1 MiB 给 VPE1。kernel/arch/mips/lantiq/falcon/vpe.c 会校验命令行请求是否落在保留区，vpe1_get_load_addr() 返回用于复制和启动的 KSEG0 地址，不能统称为物理地址。内核向 VPE1 传递的 a3 是启动环境 memsize 对应的总字节数，不是 Linux 扣除保留区后的容量。旧版的 vpe1_wdog 参数不能据此推断当前 7.3 存在已启用的 VPE watchdog。
-
-现代 init 的主要顺序为 S20uboot_env、S30goi_recover、S40modules、S50optic、S55onu、S60sfp_eeprom、S63pins、S65network、S68ssb_check、S80daemons。它使用 falcon.conf、defaults 和 runtime.conf，由 functions.sh 读配置；不是原厂 rc.common/UCI 脚本的直接运行环境。
-
-审阅一个镜像时先对 image-manifest.json 的 kernel_source_commit、bsp_source_commit、userspace_source_commit、dirty 标志和文件哈希与实际源码/产物作对应。现有 build/linux-7.3-bootfix 的 manifest 固定记录 kernel a5f4a8726、BSP eec206a、userspace 0759787，它是历史构建，不能证明后续源码修正已打包。编译、静态 ABI/布局检查、镜像解包可验证配套结构；串口完整启动、根文件系统切换、VPE1 外部 I2C 事务、光路校准、UNI 链路和 OLT O5/OMCI 业务仍需板上分别验证。本工作区这些构建记录不提供已完成实机启动的证明。
+1. 确认串口有完整启动输出，内存容量和保留区符合板级配置。
+2. 按标签识别当前镜像、根文件系统、可写存储和环境分区；设备节点出现不等于已选择正确槽位。
+3. 确认 VPE1 已提供外部 I2C 事务响应，两个地址空间和动态诊断值可读。
+4. 检查光路校准就绪、温度与功率测量合理、保护和告警状态正常。
+5. 检查 UNI 链路速率、协商和误码，再检查 PLOAM 激活与 OMCI 管理通道。
+6. 最后验证业务转发和重新启动后的配置保持；O5、管理应答或单次链路建立均不能单独证明完整业务可用。

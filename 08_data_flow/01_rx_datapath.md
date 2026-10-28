@@ -62,7 +62,7 @@ PCBd 之后的 GTC 净荷区由连续的 GEM 帧组成。每个 GEM 帧以 5 字
 | `[39:28]` | `PLI` | 12-bit | Payload Length Indicator，指示紧随其后的 GEM 净荷字节数（`0`–`4095`） |
 | `[27:16]` | `Port-ID` | 12-bit | GEM 端口标识符（`0`–`4095`），用作 `GTC` 与 `ICTRLG` 端口查找表索引 |
 | `[15:13]` | `PTI` | 3-bit | Payload Type Indicator：`bit 2` 指示 OAM/维护帧，`bit 1` 指示拥塞，`bit 0` 为 `0` 表示非末分片、为 `1` 表示末分片（End of Frame） |
-| `[12:0]` | `HEC` | 13-bit | Header Error Control，GEM 头校验字段；本地 GTC 头文件区分可纠正的 1/2-bit HEC 错误与不可纠错计数，不把它等同于载荷 RS-FEC |
+| `[12:0]` | `HEC` | 13-bit | Header Error Control，GEM 头校验字段；GTC 分别统计可纠正的 1/2-bit HEC 错误与不可纠错计数，不把它等同于载荷 RS-FEC |
 
 `GTC` 内部集成 4096 项的 Port-ID 过滤表（512 × 32-bit 片上 RAM，每个 32 位字存放 8 个 Port-ID 的 4-bit 配置），通过间接访问寄存器 `downstr_gtc_rxpid_addr`（`0x54`）、`downstr_gtc_rxpid_wr`（`0x58`）和 `downstr_gtc_rxpid_rd`（`0x5C`）读写。每个 Port-ID 的 4-bit 配置位定义如下：
 
@@ -89,7 +89,7 @@ PCBd 之后的 GTC 净荷区由连续的 GEM 帧组成。每个 GEM 帧以 5 字
 | --- | --- | --- | --- |
 | `0x0000` | `ctrl` | 32-bit | `ACT`（bit 0）：模块使能；`CRC`（bit 4）：以太网 FCS 校验使能；`FRMCNT`（bit 5）：帧计数模式；`DBG`（bit 31）：调试访问使能 |
 | `0x0004` | `dmaw_cfg` | 32-bit | `ALLOCQ`（bit 9）：向 `FSQM` 申请空闲段的逻辑队列号（0 或 1）；`FREEQ`（bit 8）：错包丢弃时归还空闲段的队列号；`LSARLMT`（bits 7:0）：LSA 请求等待周期上限 |
-| `0x0008` | `timeout` | 32-bit | `LIMIT`（bits 31:0）：重组时间预算。头文件的 ns/s 示例按 312.5 MHz 换算，不代表本板运行频率已测得 |
+| `0x0008` | `timeout` | 32-bit | `LIMIT`（bits 31:0）：重组时间预算。若计数时钟为 312.5 MHz，每个计数周期为 3.2 ns；时间预算须按实际时钟换算 |
 | `0x0030`–`0x004C` | `maxsize[0..7]` | 8 × 32-bit | `SIZE`（bits 15:0）：对应 `PDUT` 0..7 的最大重组字节数上限（典型配置：以太网 `9990`、OMCI `1984`、IP/MPLS `65535`） |
 | `0x4000`–`0x7FFC` | `gpt[4096]` | 4096 × 32-bit | **GEM Port Table**：以 12-bit `Port-ID` 为索引。`VALID`（bit 8）：端口有效位；`GPIX`（bits 7:0）：映射到 8-bit 内部 GEM 端口索引（`0`–`255`） |
 | `0x8000`–`0x83FC` | `gpix_cfg[256]` | 256 × 32-bit | **GPIX Configuration Table**：以 8-bit `GPIX` 为索引。`IQN`（bits 4:3）：目标入向队列选择；`PDUT`（bits 2:0）：基础协议类型（`0`：Ethernet，`1`：OMCI，`2`：IPv4，`3`：IPv6，`5`：MPLS 等） |
@@ -102,7 +102,7 @@ PCBd 之后的 GTC 净荷区由连续的 GEM 帧组成。每个 GEM 帧以 5 字
    - `ICTRLG` 提取 GEM 头部的 12-bit `Port-ID` 查询 `gpt[Port-ID]`。若 `VALID == 0`，该帧丢弃；非法 GPIX 等重组错误对应 `reasserr`（`0x68`），非 OMCI 丢弃统计见 `pdc`（`0x70`）。
    - 若 `VALID == 1`，取出 8-bit `GPIX` 并查询 `gpix_cfg[GPIX]`，获取 3-bit 协议类型 `PDUT` 和 2-bit 入队指示 `IQN`。
    - OMCI 管理帧由 `gpix_cfg[GPIX].PDUT == 1`（OMCI 类型）标识，而非依赖 GEM 头部的 `PTI` 位。当 `PDUT == 1` 时，硬件校验 OMCI Trailer（含 CRC-32），并在重组完成后将报文直接导向 `IQM` 的管理队列 `Q7`。
-   - 当 `PDUT` 为用户数据报文时，`gpix_cfg[GPIX].IQN`（`0`..`3`）将报文映射到 `IQM` 的 GPON 下行数据队列：队列资源定义为 Q5 单播、Q6 组播、Q7 OMCI；各 PDUT/IQN 的组合应按 `ictrlg` 配置函数核对，不能把 Q8 当作 GPON 输入。
+   - 当 `PDUT` 为用户数据报文时，`gpix_cfg[GPIX].IQN`（`0`..`3`）将报文映射到 `IQM` 的 GPON 下行数据队列：Q5 用于单播、Q6 用于组播、Q7 用于 OMCI；Q8 是 CPU 下行注入队列。
 2. **FSQM 空闲段申请与 LLT 链接**：
    - 片上共享报文缓冲区 `SSB0`（物理基址 `0x1F200000`）按 64 字节粒度划分为 `0x4800`（18,432）个物理段（Segment），段指针宽度为 15-bit（`0x0000`–`0x47FF`），链表尾标志为 `NIL = 0x7FFF`。
    - 当帧的首个分片到达时，`ICTRLG` 通过 `dmaw_cfg.ALLOCQ` 指定的通道向 `FSQM`（`0x1D500000`）弹出一个空闲段号作为 `HeadLSA`（头部逻辑段地址），并将报文前 64 字节（预留头部偏移 `HDR_OFF` 后）通过 DMA 写入 `SSB0` 对应段。
@@ -199,9 +199,3 @@ PCBd 之后的 GTC 净荷区由连续的 GEM 帧组成。每个 GEM 帧以 5 字
 2. 先从首段 `HLSA` 偏移 `0` 处读取 `HDRL` 字节的改写后二层头部送入 `EIM` 发送 FIFO，随后沿 `LLT[HLSA]` 定位到原始净荷首段，跳过前 `OFFS` 字节（原二层头部），继续读取 `BDYL` 字节的报文净荷直至 `TLSA`。
 3. 每当一个 64 字节段的数据全部移出后，`OCTRLLn` 立即将该段地址 `CurrLSA` 归还给 `FSQM`（若该段因组播复制带有大于 1 的引用计数，则递减引用计数，减至 0 时合入空闲链表），然后沿 `LLT[CurrLSA]` 跳转至下一段直至遇到 `0x7FFF`（`NIL`）。
 4. 若出向以太网帧剥离 VLAN 标签后不足 60 字节（不含 4 字节 FCS），硬件自动补零填充至最小帧长，并在帧尾计算及追加 32-bit IEEE 802.3 FCS 校验和，最终由 `EIM`（`0x1D800000`）经片上 `GPHY0`/`GPHY1` 或 `SGMII`/`SXGMII` SerDes（`0x1D808C00` / `0x1D808800`，1 Gbps 或 2.5 Gbps）发送至外部主机。
-
-## 本地依据与适用范围
-
-`bsp/modules/onu/drv_onu_reg_gtc.h`、`drv_onu_reg_ictrlg.h`、`drv_onu_reg_octrll.h` 与 `include/drv_onu_resource_gpe.h`。流水线阶段为功能关系，未完整验证 PE 的逐包调用顺序和每个内部周期。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

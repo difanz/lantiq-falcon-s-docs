@@ -84,9 +84,3 @@ SXGMII 模块实现 8B/10B 编解码、弹性缓冲（Elasticity Buffer）、IEE
 | `0x34`–`0x60` | `PLL_REGFILE_CTRL1..7` / `A_CTRL1..4` / `STATUS` | SerDes 锁相环倍频系数（1.25 GHz / 3.125 GHz）、环路参数与锁定状态（`STATUS` `0x60`） |
 | `0x64`–`0xA0` | `TX_REGFILE_0_*` / `TX_REGFILE_1_*` | 发送器摆幅控制、去加重/预加重抽头权重与端接阻抗配置 |
 | `0xA4`–`0xBC` | `RX_REGFILE_CTRL1..2` / `CDR` / `EI` / `CAL` / `A_CTRL` / `TEST_CTRL` | 接收器均衡增益、CDR 相位跟踪环路、电空闲（Electrical Idle）检测与失调校准控制 |
-
-## 本地依据与适用范围
-
-`bsp/modules/onu/drv_onu_reg_base.h`、`drv_onu_reg_sys_eth.h`、EIM/SXGMII/SGMII 寄存器头与 `drv_onu_ll_eim.c`。速率模式是芯片/驱动能力，不证明 MA5671A 已按该速率联通。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

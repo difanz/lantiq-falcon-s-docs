@@ -562,10 +562,4 @@ PE 线程向 `COP5` 发起 `IF_VLAN_TRANSLATE`（入口 `PC = 0`）调用时，�
 
 每个异常模板占 64 位。大端目标的 `gpe_exception_table` 明确把 Word 0 定义为 `egress_exception_flag_mask`，Word 1 为 `ingress_exception_flag_mask`；两者是方向掩码，不能解释为 forward/cpu 两个动作位图。
 
-异常动作另由 `gpe_redirection_table`（表 ID 73）控制：`redirection_queue_index[7:0]` 选择队列（255 表示丢弃），`snooping_enable[8]` 使异常处理之外仍按原数据流复制/转发；另有 `remove_meta_data_header[9]` 与 `no_exception_policer[10]`。必须结合方向掩码、重定向项及端口配置判断镜像、捕获或丢弃，不能通过“两个掩码同时置 1”配置镜像。来源：`bsp/modules/onu/include/drv_onu_gpe_tables.h` 的上述两种结构。
-
-## 本地依据与适用范围
-
-`bsp/modules/onu/include/drv_onu_resource_gpe_tables.h`（ID/尺寸）、`drv_onu_gpe_tables.h`（大端表字段）及六份原始 `tse*.bin`。表编号保留不等于该固件已经配置该表，运行策略与表结构也应分开。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。
+异常动作另由 `REDIRECTION_TABLE`（表 ID 73）控制：`redirection_queue_index[7:0]` 选择队列（255 表示丢弃），`snooping_enable[8]` 使异常处理之外仍按原数据流复制/转发；另有 `remove_meta_data_header[9]` 与 `no_exception_policer[10]`。必须结合方向掩码、重定向项及端口配置判断镜像、捕获或丢弃，不能通过“两个掩码同时置 1”配置镜像。

@@ -1,6 +1,6 @@
 # 8.3 GPE 表接口与 FID 转发
 
-GPE（GPON Packet Engine）采用双域硬件表架构支撑线速报文解析与转发：定长配置属性表镜像存储在 6 颗 `PE`（`PE0`–`PE5`，`0x1D610000`–`0x1D660000`）各自的片上数据 RAM 中，供硬件线程直接寻址；流表、哈希表、规则表与计数器表存储在 6 个表搜索协处理器功能块（`COP0 = FID`、`COP1 = FWD`、`COP2 = TAG`、`COP3 = TBL`、`COP4 = MSF`、`COP5 = EXT`）的专用表 SRAM 中，由协处理器微码或硬连线表引擎执行哈希查找、单链表遍历、三态掩码匹配或原子计数。各功能块的完整表存储器布局与表项位域见 [5.5 SCE 硬件功能块详解](../05_coprocessors/05_sce_function_blocks.md)，协处理器微码的逐行指令实现见 [5.8 TSE 微码固件反汇编逐行详解](../05_coprocessors/08_tse_firmware_disassembly.md)。
+GPE（GPON Packet Engine）采用双域硬件表架构支撑线速报文解析与转发：定长配置属性表镜像存储在 6 颗 `PE`（`PE0`–`PE5`，`0x1D610000`–`0x1D660000`）各自的片上数据 RAM 中，供硬件线程直接寻址；流表、哈希表、规则表与计数器表存储在 6 个表搜索协处理器功能块（`COP0 = FID`、`COP1 = FWD`、`COP2 = TAG`、`COP3 = TBL`、`COP4 = MSF`、`COP5 = EXT`）的专用表 SRAM 中，由协处理器微码或硬连线表引擎执行哈希查找、单链表遍历、三态掩码匹配或原子计数。各功能块的完整表存储器布局与表项位域见 [5.5 SCE 硬件功能块详解](../05_coprocessors/05_sce_function_blocks.md)，协处理器微码的逐行指令实现见 [5.8 TSE 微码指令示例](../05_coprocessors/08_tse_firmware_disassembly.md)。
 
 ```mermaid
 flowchart TD
@@ -67,9 +67,9 @@ GPE 将全部硬件表统一编址在 7-bit 全局 `Table ID`（`0`–`79`）空
 
 `BRIDGE_PORT_TABLE`（ID 65）在每颗 `PE` 本地数据 RAM 中包含 88 个表项（索引 `0`–`87`），每个表项占 128 位（4 个 32 位字 `Word 0`–`Word 3`）。无论是 UNI 物理端口、802.1p P-Mapper 还是单播/组播 GEM 端口，均通过分配独立的 `Bridge Port Index` 接入二层桥接矩阵。
 
-### 2.1 本地大端结构中的字段布局
+### 2.1 桥端口表项字段布局
 
-以下从 `bsp/modules/onu/include/drv_onu_gpe_tables.h:struct gpe_bridge_port_table` 的大端分支读取，适用该 3.10 基线表 ABI；不能把后续移植新增字段混入原固件布局。
+下表定义当前微码配置使用的 128 位桥端口表项，按四个 32 位字列出字段。此布局属于微码与表存储器之间的接口；更换微码时须保持表布局匹配。
 
 | 字 | 位域 | 字段 |
 | --- | --- | --- |
@@ -81,7 +81,7 @@ GPE 将全部硬件表统一编址在 7-bit 全局 `Table ID`（`0`–`79`）空
 | Word 3 | 11；10；9；8 | 端口锁定；IPv6 未知组播泛洪禁用；出向 meter 使能；本地交换使能 |
 | Word 3 | 7；6；5；4；3；2；1；0 | 出向无标签丢弃；出向标签过滤；入向 meter；未知组播/未知单播泛洪禁用；入向无标签丢弃；入向标签过滤；学习使能 |
 
-此前将 `learning_limit` 放在 Word 0、将 `exception_profile/ext_vlan_idx` 放在本表的布局没有该结构依据，已移除。异常模板的方向掩码与重定向动作见 [VLAN 与异常处理](04_vlan_and_qos_processing.md)。
+异常模板的方向掩码与重定向动作见 [VLAN 与异常处理](04_vlan_and_qos_processing.md)。
 
 ---
 
@@ -138,10 +138,4 @@ flowchart TD
 | 14 / 15 / 16 | `ANI/UNI/IGMP_EXCEPT_POLICER_THRESHOLD` | 异常 policer 门限 |
 | 17 | `METER_L2_MODE` | 计量模式 |
 
-来源为 `bsp/modules/onu/include/drv_onu_resource_gpe.h` 的 `ONU_GPE_CONST_*`，每项 32 位，字节偏移为 Row × 4。未命名项不能从通用协议功能自行补出寄存器含义。
-
-## 本地依据与适用范围
-
-`bsp/modules/onu/include/drv_onu_gpe_tables.h`、`drv_onu_resource_gpe_tables.h`、`drv_onu_resource_gpe.h`；COP 调用语义另见原始 `tse*.bin`。所有表容量均需区别资源定义、固件初值和运行分配。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。
+每项占 32 位，字节偏移为 Row × 4。未列出的行不在本节定义范围内。

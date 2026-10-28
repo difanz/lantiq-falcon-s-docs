@@ -122,9 +122,3 @@ PE 架构包含 16 个可通过单条访存指令读出的 32 位物理寄存器
 | `CMD_R0H` / `CMD_R0L` | `0x03` / `0x04` | `CMD_RPC` | `0x20` |
 | `CMD_R11H` / `CMD_R11L` | `0x19` / `0x1A` | `CMD_IRQ_REASON` | `0x21` |
 | `CMD_RFPH` / `CMD_RFPL` | `0x1B` / `0x1C` | `CMD_STOP` / `CMD_REG_PREPARE` | `0xFF` / `0x3FF` |
-
-## 本地依据与适用范围
-
-`bsp/modules/onu/drv_onu_ll_sce.c` 中 PE 调试读写/注入指令常量，以及 `drv_onu_reg_pe.h`、`drv_onu_reg_pctrl.h`。这是调试接口可见的编码子集，不是完整厂商 ISA 规范。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

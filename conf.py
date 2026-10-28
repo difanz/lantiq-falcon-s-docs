@@ -1,6 +1,6 @@
 project = 'Lantiq Falcon (PEB/PEF 98035)'
 copyright = '2026'
-author = 'Falcon Analysis'
+author = 'Falcon Documentation'
 release = '1.0'
 version = '1.0'
 

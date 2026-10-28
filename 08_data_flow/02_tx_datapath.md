@@ -50,7 +50,7 @@ flowchart TD
 | `0x58 / 0x5C` | `ovrsize / dmawerr` | 超长与 DMAW 错误计数 |
 | `0x80` | `macerr` | GMAC 错误计数 |
 
-依据为 `drv_onu_reg_ictrll.h:struct onu_reg_ictrll`。此前在 `+0x08` 列 `maxsize`、在 `+0x34` 列帧长分桶计数的布局不属于这份 ICTRLL。
+各偏移均相对于对应 ICTRLL 实例基址。
 
 `ICTRLLn` 接收到一个以太网帧时，向 `FSQM`（`0x1D500000`）逐段申请 64 字节 `SSB0` 段，在首段起始处预留 `HDR_OFF`（32 字节）头部扩展空间以便后续压入外层/内层 VLAN 标签或 PPPoE/GEM 头部，将帧数据通过 DMA 写入 `SSB0` 并在 `LLT` 中链接各段，最后生成入向描述符压入 `IQM` 的 `Q0`–`Q3`。
 
@@ -93,7 +93,7 @@ flowchart TD
 - **常规出向端口 (`rEPN`，Regular Egress Port)**：承载该 T-CONT 下的普通优先级与加权轮询（WRR）业务流量。
 - **抢占出向端口 (`pEPN`，Preempting Egress Port)**：承载该 T-CONT 下的高优先级低时延流量，可在 GEM 分片边界抢占同一 T-CONT 内正在发送的常规帧。
 
-在 `TMU` 内部，256 条出向队列通过 128 个分级调度器块（Scheduler Block `SB 0..127`）汇聚至各 T-CONT 的 `EPN`（顶层 T-CONT 调度块编号遵循 `SB_ID = 93 + T-CONT 索引` 的驱动预留关系）：
+在 `TMU` 内部，256 条出向队列通过 128 个分级调度器块（Scheduler Block `SB 0..127`）汇聚至各 T-CONT 的 `EPN`（顶层 T-CONT 调度块编号遵循 `SB_ID = 93 + T-CONT 索引` 的示例配置约定）：
 1. 每个调度块具有 8 个输入叶子（Leaf `0..7`），各叶子可独立配置为 SP（Strict Priority，Level `0..7`）或相同优先级下的 WRR 权重（Weight `1`–`1023`）。
 2. 任意出向队列或调度块输出均可挂载 256 个硬件双桶整形器（Token Bucket Shaper `TBS 0..255`）之一；当整形桶令牌不足时，硬件暂时挂起该队列或调度分支的参与资格，直至令牌恢复。
 
@@ -108,7 +108,7 @@ flowchart TD
 | 字节偏移 | 寄存器/表名 | 宽度与项数 | 位域与功能说明 |
 | --- | --- | --- | --- |
 | `0x0000` | `ctrl` | 32-bit | `ACT`（bit 0）：激活 `OCTRLG` 状态机；`TCRP`（bit 16）：T-CONT 报告模式 |
-| `0x0004` | `cfg0` | 32-bit | `GTCFIFOTHRES`（bits 31:24）：向 `GTC` TX FIFO 写入的背压水位阈值；`IDLELEN`（bits 21:16）：GEM Idle 帧模式字长度；`IBS`（bits 14:0）：按头文件的接口突发配置字段解释 |
+| `0x0004` | `cfg0` | 32-bit | `GTCFIFOTHRES`（bits 31:24）：向 `GTC` TX FIFO 写入的背压水位阈值；`IDLELEN`（bits 21:16）：GEM Idle 帧模式字长度；`IBS`（bits 14:0）：接口突发配置 |
 | `0x0008` | `cfg1` | 32-bit | `GEMPLSIZE`（bits 11:0）：最大单次 GEM 净荷切片长度（上限 `4095` 字节）；`TXPCNTFRAG`（bit 16）：分片计数模式；`TC0GTCFIFOTHRES`（bit 17）：T-CONT 0 专用 FIFO 水位 |
 | `0x000C` | `dctrl` | 32-bit | `FQ`（bit 0）：已发送 `SSB0` 段归还至 `FSQM` 的空闲队列号（0 或 1） |
 | `0x0010` | `dbrudbg` | 32-bit | 软件调试注入的 DBRu 报告值 |
@@ -150,9 +150,3 @@ flowchart TD
 3. **均衡时延 (`EqD`) 触发与激光器突发偏置控制**：
    - `GTC` 综合下行帧起始时刻、测距获得的均衡时延寄存器（粗粒度字偏移与比特级微调）以及授权中的 `SStart`、`SStop` 字节偏移，驱动 `PMA` 发送控制中的 `LASER_ENABLE`（`+0x20C`）与 `LASER_BITDELAY`（`+0x210`）。
    - 在突发数据比特移出前，硬件按配置的提前量 `nLaserEnStartExt` / `nLaserOffset` 提前拉高 `Burst_Enable` 信号开启 BOSA 激光器偏置与调制电流源；在突发末比特移出后，按延后量 `nLaserEnEndExt` 关断激光器电流，使非授权时隙内光功率处于关断基底以下。
-
-## 本地依据与适用范围
-
-`bsp/modules/onu/drv_onu_reg_ictrll.h`、`drv_onu_reg_octrlg.h`、`drv_onu_reg_gtc.h` 与 `include/drv_onu_resource_gpe.h`。授权/分片条件是示意，不能用来替代完整硬件状态机。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

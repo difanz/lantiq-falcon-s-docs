@@ -134,7 +134,7 @@ GEM 净荷经过 `GTC` 在线 AES-128 CTR 解密并由 `ICTRLG` 跨分片（连�
 
 ### 2.3 片上 `SSB0` 内存信封与 128-bit 描述符（In-Memory Envelope）
 
-报文在 `SSB0`（物理基址 `0x1F200000`，有效数据包缓冲区起始偏移由 `SBS0CTRL.BAR1` 指定，驱动使用 `BAR1 & SBS0CTRL_BAR1_BA1V_MASK` 提取可变边界；不能直接把完整 `BAR1` 寄存器值当作字节偏移）中传递时，在 `SCE` 处理前后具有两种不同的内存信封形态：
+报文在 `SSB0`（物理基址 `0x1F200000`，有效数据包缓冲区起始偏移由 `SBS0CTRL.BAR1` 指定，应只取 `BAR1` 的 `BA1V` 字段作为可变边界；不能直接把完整 `BAR1` 寄存器值当作字节偏移）中传递时，在 `SCE` 处理前后具有两种不同的内存信封形态：
 
 ```mermaid
 flowchart TD
@@ -217,126 +217,43 @@ flowchart TD
 | `LINK0` | `0x1D600200` | `TMU` 任意出向队列 `QID 0..255` | 发送 128-bit `DELIVER_REQUEST` (`IPN=7`, `QID`, `HLSA`, `TLSA`, `PLEN`, `GPIX`, `REQ_C=1<<29`) | **出向队列直接注入（绕过 SCE）**：跳过 `IQM` 与 `SCE` 分类引擎，直接将构造好的报文（如 OMCI 上行响应、`lct0..3` 本地管理帧、环路检测帧）压入指定的 `TMU` 出向队列 `QID` |
 | `LINK1` | `0x1D600300` | `IQM` 入向队列 `Q7` (`OMCI`) | 读取 14 或 18 个 32-bit 字 | **OMCI 入向直读通道**：直接从 `DISP`/`IQM` 读取下行 48 字节基准 OMCI 消息或描述符 |
 
-### 3.2 4 个 CPU 出向端口（`EPN 68..71`）与 8 个逻辑网络端口映射
+### 3.2 CPU 出向端口与通道分配
 
-在系统内部，CPU 侧共定义 8 个逻辑收发端口（`port_id 0..7`，对应 Linux 网络设备名 `host`、`lct0`–`lct3`、`exc`、`dbg`、`dbc`），分别关联至 `TMU` 的 CPU 出向端口 `EPN 68`（`cpu_port = 0`）与 `EPN 70`（`cpu_port = 2`）：
-
-| 端口号 (`port_id`) | 接口名称 | 类型 (`type`) | 绑定的接收端口 (`EPN`) | 默认发送目标 (`QID` / 通道) | 头部模式 (`hdr_mode`) | 硬件数据流向与用途说明 |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `0` | `host` | `2` (ANI) | `EPN 68` (`cpu_port 0`, `QID 240..247`) | `IQM Q4` (`0x04`，经 `ICTRLC0`) | `1` (ANI) | **WAN 侧三层主机接口（如 TR-069 / IP Host）**：收发承载于 GPON 业务 GEM 端口上的本机三层 IP 管理流量 |
-| `1` | `lct0` | `1` (UNI 0) | `EPN 70` (`cpu_port 2`, `QID 176..183`) | `TMU QID 0x80` (`128`，经 `LINK0` 直达 `EPN 64`) | `2` (UNI) | **UNI 0 本地维护接口（Local Craft Terminal）**：与外部主机通过物理以太网口进行本地 SSH / Web / Telnet 通信 |
-| `2` | `lct1` | `1` (UNI 1) | `EPN 70` (`cpu_port 2`) | `TMU QID 0x88` (`136`，经 `LINK0` 直达 `EPN 65`) | `2` (UNI) | **UNI 1 本地维护接口** |
-| `3` | `lct2` | `1` (UNI 2) | `EPN 70` (`cpu_port 2`) | `TMU QID 0x90` (`144`，经 `LINK0` 直达 `EPN 66`) | `2` (UNI) | **UNI 2 本地维护接口** |
-| `4` | `lct3` | `1` (UNI 3) | `EPN 70` (`cpu_port 2`) | `TMU QID 0x98` (`152`，经 `LINK0` 直达 `EPN 67`) | `2` (UNI) | **UNI 3 本地维护接口** |
-| `5` | `exc` | `0` (CPU) | `EPN 70` (`cpu_port 2`) | 由报文前 4/8 字节动态指定任意 `QID` 或 `IQM Q4/Q8` | `3` (EXC) | **协议异常捕获与原始注入接口**：接收 IGMP / MLD / ARP / DHCP / 802.1X 捕获帧（带 8B SCE 头），并支持向任意队列注入原始帧 |
-| `6` | `dbg` | `0` (CPU) | `EPN 70` (`cpu_port 2` 实时克隆) | 不用于发送（只读监听） | `3` (EXC) | **CPU 端口全量镜像监听网卡**：开启后自动克隆 `EPN 70` 收到的所有原始帧（含 8B SCE 内部元数据头），供 `tcpdump` 抓包诊断 |
-| `7` | `dbc` | `2` (ANI) | `EPN 70` (`cpu_port 2`, `GPIX=0xFE`) | `TMU QID 0xFA` (`250`，`GPIX=0xFE`，附带 `0x81000000` 标签) | `1` (ANI) | **ANI 光侧带内调试通道（Debug Channel）**：通过预留 `GPIX 0xFE` 与 OLT 进行带内维护帧收发 |
+TMU 提供 `EPN 68..71` 四个 CPU 出向端口。队列到端口的绑定可配置，例如将 ANI 管理流量送往 `EPN 68`、UNI 管理与异常流量送往 `EPN 70`。这些是通道分配策略；逻辑管理接口数量并不等于硬件端口数量。
 
 ### 3.3 `EPN 70` 报文的 8 字节 SCE 内部元数据信封（CPU Envelope Header）
 
-所有由 `SCE` 转发至 `EPN 70`（`cpu_port = 2`）的报文，其 `New_HLSA` 首段的起始 8 个字节（`buf.data[0..7]`）并非以太网 `DMAC`，而是由 `PE` 微码压入的 **8 字节 SCE CPU 元数据头**，紧随其后的偏移 `+8` 处才是以太网帧的 `DMAC`：
+所有由 `SCE` 转发至 `EPN 70`（`cpu_port = 2`）的报文，其 `New_HLSA` 首段的起始 8 个字节并非以太网 `DMAC`，而是由 `PE` 微码压入的 **8 字节 SCE CPU 元数据头**，紧随其后的偏移 `+8` 处才是以太网帧的 `DMAC`：
 
 | 字节偏移 | 位域 | 字段含义与硬件分流判据 |
 | :--- | :--- | :--- |
 | `Byte 0` | `bits [7:0]` | 入向队列或分类目标队列标识 |
-| `Byte 1` | `bits [7:6]` | **源/目的逻辑 UNI 端口号（`lan_idx = data[1] >> 6`，取值 `0..3`）**：标识该帧来自或归属于 `UNI0`–`UNI3` 中的哪一个物理以太网口 |
+| `Byte 1` | `bits [7:6]` | **源/目的逻辑 UNI 端口号（取值 `0..3`）**：标识该帧来自或归属于 `UNI0`–`UNI3` 中的哪一个物理以太网口 |
 | `Byte 1` | `bits [5:0]` | 桥接端口与分类标志位 |
-| `Byte 2` | `bits [7:0]` | **关联的 `GPIX`（内部 GEM 端口索引）**：当 `data[2] == 0xFE` 时标识来自 GPON ANI 带内调试通道（`dbc`） |
+| `Byte 2` | `bits [7:0]` | **关联的 `GPIX`（内部 GEM 端口索引）**：值为 `0xFE` 时标识来自 GPON ANI 带内调试通道（`dbc`） |
 | `Byte 3` | `bits [4:0]` | **异常原因码（`Exception Index`）**：例如 `0x00` 表示正常本地路由（如命中 LCT MAC 或 DBC 帧），`0x15` 表示环路检测帧（Loop Detection Frame，`EtherType 0xFFFA`），其余值对应 IGMP、ARP、DHCP、EAPOL 或 ACL 捕获原因码 |
 | `Byte 4` | `bit 7` (`0x80`) | **外层 VLAN 有效标志（`VLAN_VALID`）**：`1` 表示入向帧携带外层 VLAN 标签且已被提取至 `Byte 4..5`；`0` 表示入向无标签 |
 | `Byte 4..5` | `Byte 4 [3:0] : Byte 5 [7:0]` | **提取的 12-bit 外层 VLAN ID（`VID`）**：由 `SCE` 解析并填入，供 CPU 在接收 LCT 管理帧时直接核对管理 VLAN ID |
 | `Byte 6` | `bits [7:0]` | 保留状态字 |
 | `Byte 7` | `bits [7:0]` | **内嵌净荷偏移量（`offset`）**：指示二层/三层协议载荷相对于 `+8` 起始处的字节偏移（用于环路检测与 DBC 帧解析） |
 
-当 `EPN 70` 触发 `TMU_IRNCR_EPFC2`（`bit 10`）中断时，CPU 读取完整报文并根据上述 8 字节信封头执行多路分流：
-1. 若 `dbg`（端口 6）已打开，首先将包含 8 字节 SCE 头在内的完整报文克隆一份上送 `dbg` 接口。
-2. 若 `(data[3] & 0x1F) == 0x15` 且内嵌净荷以 `0xFF 0xFA` 开头、源 MAC 匹配本机 `lan_mac[lport]`，则在驱动内部直接完成**硬件端口环路检测（Loop Detection）**，自动调用 `lan_ingress_port_enable(pport, 0)` 关闭发生环路的 `IQM` 入向队列并上报环路事件；其余异常码报文保留 8 字节头直接上送 `exc`（端口 5）。
-3. 若 `(data[3] & 0x1F) == 0` 且 `data[2] == 0xFE` 且 `data[4] & 0x80` 置位，则剥离 8 字节头与内部偏移后上送 `dbc`（端口 7）。
-4. 其余 `Exception Index == 0` 的帧即为发往本机 UNI 口的 **LCT 管理帧**，剥离 8 字节头（及可选的 4 字节 LCT VLAN 标签）后按 `lan_idx = data[1] >> 6` 上送 `lct0`–`lct3`（端口 1–4）。
+### 3.4 捕获、镜像与注入
 
-### 3.4 CPU 监听、抓包（Traffic Tap）与原始注入的四种工作模式
+异常掩码选择需要处理的入向或出向异常；`REDIRECTION_TABLE` 的目标队列与 `snooping_enable` 决定重定向或保留原转发路径的镜像。ACL 可进一步限定 MAC、VID、IP、传输层端口及 GEM 端口等条件。捕获与镜像都会消耗 CPU 出向端口和共享缓冲资源，不能由正常转发路径的线速能力推导出镜像路径必然无丢包。
 
-1. **协议异常与旁路监听**：
-   - `EXCEPTION_TABLE` 的两个字分别是出向、入向异常掩码。镜像由 `REDIRECTION_TABLE` 中的 `snooping_enable` 与目标队列控制，详见 [异常处理](04_vlan_and_qos_processing.md)。开启镜像会增加 CPU 路径负载；“无损”与线速需要运行验证。
-2. **基于 4-Lane ACL 的精准业务流抓包（Flow Mirroring / Trapping）**：
-   - 在 `COP5`/`COP2`/`COP3`/`COP0` 的 128 条 256-bit 三态 ACL 表中写入匹配规则（可匹配任意源/目的 IP、四层端口、MAC、VID 或入向 GEM Port `GPIX`），在动作字（`Word 6`）中置位异常捕获动作，即可将线上特定用户或特定 GEM 端口的流量实时镜像或重定向至 `EPN 70`。
-3. **UNI 端口混杂模式抓包（Promiscuous Mode）**：
-   - 当在 Linux 下对 `lct0`（或配合 `dbg`/`exc`）开启混杂模式（如运行 `tcpdump -i lct0` 或 `tcpdump -i dbg`）时，驱动保存当前 `EXCEPTION_TABLE` Profile 1 配置并将其改写为全捕获模式，使进入 UNI 的流量上送 `EPN 70`。
-4. **通过 `exc` 接口（端口 5）向任意硬件队列注入原始报文**：
-   - 向 `exc` 网络接口发送报文时，报文前 4 字节或 8 字节（由 `data[3]` 的 `bit 5 (0x20)` 选择：`0` = 4 字节头，`1` = 8 字节头）作为**硬件注入控制头**，并在写入 `SSB0` 前自动剥离：
-     - **当 `data[3]` 的 `bit 6 (0x40) == 0`（直接出向队列注入）**：通过 `LINK0`（`ssb_equeue_write`）绕过 `SCE`，直接将报文打入 `QID = data[0]`（`0..255` 任意 `TMU` 出向队列），且 `GPIX` 由 `data[2]` 指定。
-     - **当 `data[3]` 的 `bit 6 (0x40) == 1`（入向分类流水线注入）**：
-       - 若 `data[3]` 的 `bit 7 (0x80) == 0`：通过 `ICTRLC1` 注入 **`IQM Q8`（下行入向队列）**，模拟来自 GPON 侧的下行包，目标 UNI 端口由 `data[1] >> 6` 指定。
-       - 若 `data[3]` 的 `bit 7 (0x80) == 1`：通过 `ICTRLC0` 注入 **`IQM Q4`（上行入向队列）**，模拟上行包交由 `SCE` 分类，`GPIX` 由 `data[2]` 指定。
+CPU 注入有两类路径：通过 `ICTRLC0/1` 进入 `IQM Q4/Q8` 时，报文经过 SCE 分类与规则处理；通过 `LINK0` 直接投递 TMU 队列时，绕过 SCE。因此直接投递的帧头、VLAN 标签、长度和目标队列必须在提交前准备完成。
 
----
+## 4. UNI 业务流与管理流的共享
 
-## 4. CPU / Linux 接口与以太网 PHY、VLAN 标签及 LCT 管理接口的交互
+一个物理 UNI 可以同时承载透传业务流与终结于 CPU 的管理流。MA5671A 通过 SFP 高速串行以太网接口连接宿主；片上 GPHY 是另一种 SoC 接口能力，不应将二者视为同一条板级链路。
 
-在 SFP GPON Stick（如 MA5671A）或单端口 ONU 中，物理上仅有一个以太网 UNI 接口（在 MA5671A 上经 SFP 高速串行接口连接宿主；片上 GPHY 是 SoC 的另一种接口能力）。该物理接口必须同时承载**透明桥接的 GPON 宽带业务流**与**终结在 ONU 本地 Linux 系统的 `lct0` 管理流量**。
+`LAN_PORT` 表（ID 67）的管理 MAC 配置可供 PE 分类使用。匹配管理规则的报文可以送往 CPU 出向端口；业务帧继续经过 VLAN 处理、转发表查询和 T-CONT 队列映射。具体匹配优先级由微码与规则配置决定。
 
-```mermaid
-flowchart TD
-    subgraph EXT_HOST["外部交换机 / 宿主路由器"]
-        PHY_LINK["SFP 高速串行以太网链路"]
-    end
+| 通路 | VLAN 处理位置 | 配置要求 |
+| --- | --- | --- |
+| UNI 到 CPU | SCE 可提取 VLAN 信息到 CPU 元数据头；CPU 决定是否接收及剥离标签 | 管理 VLAN 与元数据解释须保持一致 |
+| CPU 经 LINK0 到 UNI | 绕过 SCE，不执行 SCE VLAN 转换 | 提交前构造完整以太网帧及所需标签 |
+| CPU 经 IQM Q4 到 ANI | 经过 SCE 的上行 VLAN 规则 | 配置关联的桥端口、VLAN 动作及 T-CONT 队列 |
+| ANI 到 CPU | 可先执行下行 VLAN 规则，再送 CPU 出向端口 | CPU 接收格式应与所选规则匹配 |
 
-    subgraph EIM_MAC["EIM 以太网接口与 MAC 0x1D800000"]
-        MDIO_BUS["MDIO 主控制器 - 轮询与配置 PHY 寄存器"]
-        MAC0["EIM MAC 端口 - 帧收发与 FCS 校验"]
-    end
-
-    subgraph GPE_SPLIT["SCE 硬件 LCT 分流与 VLAN 处理"]
-        ICTRLL0["ICTRLL0 -> IQM Q0"]
-        PE_LCT["PE 查 LAN_PORT 表 (ID 67) 比对 DMAC 与 LCT_MAC"]
-        USER_BRIDGE["常规 GPON 桥接: COP5 Extended VLAN -> COP1 FDB -> TMU EPN 0..63"]
-        LCT_TRAP["LCT 管理捕获: 压入 8B CPU 头 (含提取的 VID) -> TMU EPN 70"]
-    end
-
-    subgraph LINUX_LCT["VPE0 Linux lct0 管理网络接口"]
-        RX_VLAN_CHK["接收侧: 核对 VID == lct_vlan_id 并剥离 8B 头 + 4B VLAN"]
-        TX_VLAN_INS["发送侧: ssb_segm_write 在 DMAC+SMAC 后插入 4B 0x8100 + VID"]
-        LCT_NETDEV["Linux lct0 net_device + phydev 状态同步"]
-    end
-
-    PHY_LINK <--> MAC0
-    MDIO_BUS <-->|SIOCGMIIREG / 链路状态| LCT_NETDEV
-    MAC0 --> ICTRLL0 --> PE_LCT
-    PE_LCT -->|DMAC != LCT_MAC| USER_BRIDGE
-    PE_LCT -->|DMAC == LCT_MAC| LCT_TRAP
-    LCT_TRAP -->|OCTRLC 读取| RX_VLAN_CHK --> LCT_NETDEV
-    LCT_NETDEV --> TX_VLAN_INS -->|LINK0 直达 TMU QID 0x80 -> EPN 64 -> OCTRLL0| MAC0
-```
-
-### 4.1 基于 `LAN_PORT` 表（ID 67）的物理端口业务与管理硬件分流
-
-1. **LCT MAC 地址下发至微码表**：
-   - 当 Linux 系统配置或修改 `lct0`–`lct3` 的网卡 MAC 地址时，驱动向 `PE` 发送内部表写命令（表 ID `0x43` / `67` `LAN_PORT`，实例掩码 `0x3F`，表项索引 `0..3`），将该管理接口的 48-bit MAC 地址写入 `LAN_PORT.mac_address_high`（高 16 位）与 `LAN_PORT.mac_address_low`（低 32 位）。
-2. **`PE` 入向微码硬件识别**：
-   - 从以太网 PHY 进入 `EIM` 与 `ICTRLL0`（`IQM Q0`）的每一个以太网帧，在进入 `PE` 线程的第一阶段即读取 `LAN_PORT` 表：
-     - **用户业务帧（`DMAC != LCT_MAC`）**：进入标准 GPON 桥接流程（由 `COP5` 执行用户 VLAN 规则转换、`COP1` 查找转发数据库、送入 `TMU` 的 T-CONT 出向端口 `EPN 0..63` 由 `OCTRLG` 发往 OLT）。
-     - **本地管理帧（`DMAC == LCT_MAC`，或匹配管理 ARP 规则）**：`PE` 立即旁路后续 GPON 桥接流程，将该帧重定向至 CPU 出向端口 `EPN 70`，并在帧首附上 8 字节 SCE CPU 元数据头（其中 `data[1] >> 6` 记录入向 UNI 端口号 `0..3`）。
-
-### 4.2 CPU 路径上的 VLAN 打标（Tagging）与剥离（Untagging）机制
-
-系统在 **LAN 侧本地管理接口（`lct0`）** 与 **WAN 侧光网络主机接口（`host`）** 上采用两套截然不同的 VLAN 标签处理机制：
-
-| 对比维度 | `lct0`–`lct3`（以太网 UNI 侧本地管理接口） | `host`（GPON ANI 侧 WAN 主机接口） |
-| :--- | :--- | :--- |
-| **入向（RX）VLAN 过滤与剥离** | **SCE 提取 + CPU 核对剥离**：1. 若未启用 `lct_vlan_enabled`，剥离 8B CPU 头后直接交付 `lct0`；2. 若启用了 `lct_vlan_enabled`，`SCE` 将入向帧的外层 VLAN 提取至 8B CPU 头的 `data[4..5]`（`data[4] bit 7` 为有效位，低 12 位为 `VID`）。CPU 校验 `VID == lct_vlan_id`：不匹配则直接丢弃；匹配则将 `DMAC+SMAC`（`data[8..19]`）向后平移 4 字节覆盖原 802.1Q 标签（`memmove(data+12, data+8, 12)`），跳过前 12 字节后向 Linux `lct0` 交付无标签帧 | **COP5 全硬件剥离**：下行 WAN 管理流量在经过 `SCE` 时，直接由 `COP5`（`EXT`）匹配 `VLAN_RULE_TABLE` 并执行 `VLAN_TREATMENT_TABLE` 的标签剥离动作；到达 `EPN 68` 时已是不带外层 WAN VLAN 的以太网帧，CPU 从 `OCTRLC` 读出后直接交付 `host` |
-| **出向（TX）VLAN 压入与队列路径** | **绕过 SCE + 写入 `SSB0` 时内联插入**：`lct0` 发送时经 `LINK0` 直接投入 `TMU QID 0x80`（`EPN 64` 最高优先级队列），**完全绕过 `SCE`（避免被用户口的上行 Extended VLAN 规则污染）**。当启用了 `lct_vlan_enabled` 时，`ssb_segm_write()` 在写入 `SSB0` 首段时先写入 12 字节 `DMAC+SMAC`，在偏移 `+12` 处直接插入 4 字节 `0x81000000 \| lct_vlan_id`，再写入后续字节，由 `OCTRLL0` 发往以太网 PHY | **注入 `IQM Q4` + COP5 全硬件打标**：`host` 发送时经 `ICTRLC0` 注入 `IQM Q4`（`custom_mode = 0x00040000`），进入 `SCE` 上行分类流水线，由 `COP5`（`EXT`）自动按 OMCI 下发的 Extended VLAN 规则压入 WAN 管理 VLAN（S-VLAN / C-VLAN）并映射至管理 T-CONT 队列 |
-
-### 4.3 Linux 网络设备与以太网 PHY（`GPHY0/1` / `SGMII`）的链路联动
-
-1. **MDIO 总线与 `phy_device` 绑定**：
-   - `EIM`（`0x1D800000`）内置的 MDIO 主控制器管理片上 `GPHY0`/`GPHY1`（内部 MDIO 地址由 `lan_port[i].cfg.mdio_dev_addr` 指定）及外部 PHY。
-   - `lct0`–`lct3` 在注册 `net_device` 时关联对应的 Linux `phy_device`（`dev->phydev`），将针对 `lct0` 的 `SIOCETHTOOL`、`SIOCGMIIPHY`、`SIOCGMIIREG`、`SIOCSMIIREG` ioctl 直接转发至内核 PHY 子系统，使 `ethtool lct0` 能够直接读写物理以太网口速率、双工与自协商状态。
-2. **双端载波状态（Carrier Status）硬件同步**：
-   - **UNI 侧（`lct0`–`lct3`）**：链路状态轮询机检测到 `EIM` MAC / `GPHY` / `SGMII` 端口的 Link Up/Down 或速率/双工变化时，一方面向用户态队列压入 `ONU_EVENT_LINK_STATE_CHANGE`（事件码 `0x0D`），另一方面调用 `onu_net_status_uni()` 触发 `lct0` 的 `link_change` 回调，实时切换 `netif_carrier_on(lct0)` 与 `netif_carrier_off(lct0)`；发送函数 `net_pdu_write()` 在写入 `SSB0` 前亦会调用 `net_is_port_up()` 检查 MAC 链路状态。
-   - **ANI 侧（`host` 与 `dbc`）**：当 GPON PLOAM 状态机进入或退出 `O5 (Operation)` 正常工作状态时，触发 `onu_net_status_ani()` 同步更新 `host` 与 `dbc` 网络接口的载波状态。
-
-## 本地依据与适用范围
-
-`bsp/modules/onu/drv_onu_net.c`、`drv_onu_ll_ssb.c`、`drv_onu_reg_base.h` 以及 `include/drv_onu_gpe_tables.h`。CPU 驱动路径不等于全部流量必须经过 CPU；捕获流量及管理 VLAN 行为取决于配置。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。
+链路状态独立于管理通道配置。UNI 侧需分别检查 MAC 与 PHY/串行接口的链路、速率及双工状态；ANI 侧需满足 GPON 激活与授权条件。逻辑管理通道可用不等于全部物理链路均已就绪。

@@ -69,7 +69,7 @@ flowchart TD
 
 ## 段链表（LLT）分配与回收流程
 
-1. **空闲链初始化**：`drv_onu_ll_fsqm.c:fsqm_init()` 根据 `ONU_SBS0RAM_SIZE`、`BAR1 & SBS0CTRL_BAR1_BA1V_MASK` 及调用者 `head/tail` 限制范围，再将尾界减 1 变为最后可用项。`fsqm_llt_init()` 对该范围写入后继 LSA、`RCNT_INIT`，末项写 `0x7FFF`，并设置首尾与计数。`0..0x47FF` 是最大资源范围示例，不是所有配置必然使用的初值；初始化与模块激活也应分开看。
+1. **空闲链初始化**：可用 LSA 范围取决于 SBS0 RAM 容量、`BAR1.BA1V` 指定的报文缓冲起点与所配置的首尾边界。初始化时为范围内各项写入后继 LSA 和引用计数，末项写 `0x7FFF`，再设置空闲链首尾与计数。`0..0x47FF` 是最大资源范围示例，不是所有配置必然使用的初值；链表初始化与模块激活是两个独立步骤。
 2. **入向分配与成链**：当 `ICTRLG` 或 `ICTRLL0..3` 接收报文时，每满 64 字节向 FSQM 请求一个段。FSQM 弹出当前 `OFSQ.HEAD` 作为分配的 `LSA`，读取 `RAM[LSA]` 更新为新的 `OFSQ.HEAD`，将 `OFSC.LEN` 减 1，并将 `RCNT[LSA]` 置为 `1`。报文首段记为 `HLSA`（Head LSA），后续段依次写入前一段的 `RAM[prev_LSA]`，末段记为 `TLSA`（Tail LSA）且 `RAM[TLSA] = 0x7FFF`。
 3. **空闲水位监测**：硬件实时比较 `OFSC.LEN` 与 5 个门限寄存器 `FSQT0..4`，生成 5 路低水位状态信号送往 `IQM`、`ICTRLG` 与 `ICTRLL0..3`，用于触发入向 WRED/尾丢弃或以太网 Flow Control 反压。
 4. **整链释放与引用递减**：当报文发送完成或被 `IQM`/`TMU` 丢弃时，模块将报文的 `HLSA` 与 `TLSA` 提交给 FSQM。FSQM 将链表各段的 `RCNT` 减 1；若减 1 后 `RCNT == 0`，硬件将该段或整条子链追加到 `OFSQ.TAIL` 末尾，更新 `OFSQ.TAIL` 并累加 `OFSC.LEN`。
@@ -86,10 +86,4 @@ flowchart TD
 | `0x18` | `GPHY1IMG` | GPHY1 映像起始地址，字段同 GPHY0 |
 | `0x20` | `MCTRL` | 内存访问模式控制，`DSC` bit 0 为测试解扰控制 |
 
-`0x04`、`0x0C`、`0x14`、`0x1C` 在本地 Falcon 头文件中保留；没有此前所列的 `STAT/ERR/EADR/ARB` 寄存器。依据为 `bsp/modules/onu/drv_onu_reg_sbs0ctrl.h:struct onu_reg_sbs0ctrl`。
-
-## 本地依据与适用范围
-
-`bsp/modules/onu/drv_onu_reg_fsqm.h`、`drv_onu_reg_sbs0ctrl.h`、`drv_onu_ll_fsqm.c:fsqm_init()/fsqm_llt_init()`。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。
+`0x04`、`0x0C`、`0x14`、`0x1C` 为保留位置。

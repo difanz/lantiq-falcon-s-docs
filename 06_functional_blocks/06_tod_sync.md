@@ -57,9 +57,3 @@ flowchart LR
 3. 将 `Nanosec_corr` 拆分为 `RLDNSHI` 与 `RLDNSLO` 写入 `RLDNS`（`0x010`），将 `Sec_corr` 写入 `RLDS`（`0x014`），最后将 `SFC_target` 写入 `SFCC`（`0x018`）。
 4. 当下行 GTC 的超帧计数器 `GTC_SFCNT`（`0x1DC0003C`）递增至等于 `SFCC` 的超帧起始沿时，TOD 硬件在单拍内将 `RLDS` 与 `RLDNS` 原子锁存至工作计数器 `TCS`（`0x024`）与 `TCNS`（`0x020`），执行预装载；实际同步误差还依赖偏移补偿与板级测量，不能由寄存器分辨率推出。
 5. 当需要输出串口时间报文（如 NMEA/TOD 字符串）时，使能 `IRNEN.PPS` 或 `IRNEN.PPSDEL` 中断，在秒脉冲触发或延迟 `CFG.INTDEL × 100 µs` 后读取 `TCS` 更新下一秒的时间报文。
-
-## 本地依据与适用范围
-
-`bsp/modules/onu/drv_onu_reg_tod.h`、TOD 低层驱动及 `bsp/modules/optic/drv_optic_reg_sys_gpon.h`。本板是否引出/启用 PPS、NTR 与串口时间输出需查 pinmux 和运行配置。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

@@ -135,9 +135,3 @@ GTC 内部集成 512 行 × 32-bit 查找表，覆盖全部 4096 个 GEM Port-ID
 1. **Alloc-ID 匹配**：下行 PCBd 中的 BWmap 数组经 CRC 校验后，与 `GTC_TCONT_0..31`（`0x158`–`0x1D4`）中 `USED = 1` 的 32 个 12-bit `ALLOCID` 并行比对。
 2. **时延补偿与预取**：匹配成功的授权项（`StartTime`、`StopTime`、`Flags`）加上 `GTC_RTIME_1..3`（`0x100`–`0x108`）中的均衡时延与 `GTC_START_OFFSET`（`0x14C`）偏移后，在突发窗口到来前按 `GTC_USFETCH`（`0x148`）设定的提前量触发 `OCTRLG` 从对应 T-CONT 读取数据並封装 GEM 帧。
 3. **突发激光控制**：在突发起始时刻减去 `GTC_LASER`（`0x140`）开启提前量时，GTC 拉高突发使能信号送往 PMA TX Slice，先发送 `GTC_USHDRC_*` RAM 中存储的 Guard Bits、Preamble 与 Delimiter，再发送 PLOAMu、DBRu 与 GEM 载荷；突发结束时刻加上关闭延迟量后拉低突发使能信号。
-
-## 本地依据与适用范围
-
-`bsp/modules/onu/drv_onu_reg_gtc.h`、`drv_onu_reg_sys_gpe.h`、`drv_onu_reg_base.h`；GPON 时钟域见 `bsp/modules/optic/drv_optic_reg_sys_gpon.h`。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

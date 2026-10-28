@@ -97,7 +97,7 @@ FCSI 是片内专用的高速 16-bit 寄存器读写串行总线，用于访问�
 
 | 偏移 | 寄存器名 | 位域 | 功能说明 |
 | :--- | :--- | :--- | :--- |
-| `0x00` | `CTRL` | `ERR/RR/XE/XR`（bits 3:0） | 对应四类 FCSI 中断使能；本地头文件没有这里原先列出的 `BCLK/RBD` 字段 |
+| `0x00` | `CTRL` | `ERR/RR/XE/XR`（bits 3:0） | 对应四类 FCSI 中断使能 |
 | `0x04` | `STAT` | `ERR` (bit 3)<br/>`RR` (bit 2)<br/>`XE` (bit 1)<br/>`XR` (bit 0) | 状态寄存器：`ERR`（传输错误）、`RR`（Read Ready，读数据就绪）、`XE`（Transmit Empty，发送 FIFO 空）、`XR`（Transmit Ready，可写入下一笔数据） |
 | `0x08` | `INTR` | `ERR` / `RR` / `XE` / `XR` | FCSI 中断状态与使能位 |
 | `0x0C` | `CMD` | `CMD` (bits [15:13])<br/>`AI` (bit 12)<br/>`LEN` (bits [11:8])<br/>`ADDR` (bits [7:0]) | 传输命令寄存器：<br/>`CMD`：`0` = `WRITE`，`1` = `READ`，`2` = `RST`，`3` = `BUS_RST`，`4` = `CMD_RST`，`5` = `RES_RST`；<br/>`AI`：地址自动递增（`0` = 不递增，`1` = 递增）；<br/>`LEN`：突发传输字数；<br/>`ADDR`：8-bit FCSI 从设备寄存器地址（`0x00`–`0x18`） |
@@ -122,9 +122,3 @@ FCSI 是片内专用的高速 16-bit 寄存器读写串行总线，用于访问�
 
 - **单字写操作**：等待 `STAT.XR == 1`，向 `DATA`（`0x10`）写入 16-bit 数据，再向 `CMD`（`0x0C`）写入 `(0 << 13) | (1 << 8) | addr`（`CMD = WRITE`、`LEN = 1`），最后轮询等待 `STAT.XE == 1` 确认移位完成。
 - **单字读操作**：向 `CMD`（`0x0C`）写入 `(1 << 13) | (1 << 8) | addr`（`CMD = READ`、`LEN = 1`），轮询等待 `STAT.RR == 1`，然后从 `DATA`（`0x10`）读出低 16 位数据。
-
-## 本地依据与适用范围
-
-`bsp/modules/optic/drv_optic_reg_base.h`、`drv_optic_reg_fcsic.h` 与 PMA/FCSI 寄存器头；PMA 偏移均相对 `0x1DD00000`，FCSI 地址则是片内串行总线寄存器号。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

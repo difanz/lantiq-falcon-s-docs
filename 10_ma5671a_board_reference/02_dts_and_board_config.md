@@ -1,12 +1,12 @@
-# 10.2 falcon-sfp.dts 与启动脚本
+# 10.2 板级资源与启动职责
 
-本页描述 image0 原厂 Linux 3.10.49 的 DTB 与 OpenWrt 启动链。Linux 7.3 使用移植 DTS、内嵌 initramfs 和 POSIX init 脚本，见 [环境与配套版本](03_board_tuning_and_env.md)。
+MA5671A 将处理器、64 MiB 内存、SPI NOR、串口、I2C 和 GPON 数据通路组合成单 UNI 的 SFP 设备。以下表格描述板级资源分配；设备描述中的节点状态与外设是否已进入正常工作状态需要分别判断。
 
-## 原厂镜像入口
+## 启动交接
 
-`extracted/images/kernel.bin` 加载地址为 `0x80002000`。文件前 `0x400` 字节是 NOP，`+0x400` 跳往 `0x8000A690`，`+0x408` 为 OWRTDTB:，`+0x410` 是 8160 字节 FDT。kernel_entry 位于文件 `+0x8690`。这是原厂精确布局，不能套用到重编的 7.3 内核；dumps/kernel.elf 是原始镜像的 ELF 包装。
+启动加载器完成基本内存准备、选择镜像并将控制权交给主控处理器。设备的一种内核镜像采用加载地址 0x80002000，并在镜像前部携带设备描述；该地址与镜像内部偏移是镜像格式约定，不是 SoC 对所有操作系统的固定要求。板级参数还需传递内存容量、控制台和协处理器保留区，避免主控与 VPE1 使用同一段内存。
 
-## 原厂 DTB 节点
+## 板级外设资源
 
 地址由父总线 ranges 与子节点 reg 相加。IRQ 为 DT 单元原值，ASC 顺序依驱动资源索引解释。
 
@@ -24,9 +24,9 @@
 | ASC0 | lantiq,asc | `0x1E100C00/0x100` | IRQ 104/105/106，line 0 |
 | ASC1 | lantiq,asc，disabled | `0x1E100B00/0x100` | IRQ 112/113/114，line 1 |
 | I2C | lantiq,lantiq-i2c，okay | `0x1E200000/0x10000` | IRQ 18/19/20/21；gpio1 offset 7/8 |
-| GPTC | lantiq,gptc-falcon | `0x1E100E00/0x100` | 原 DT 无 interrupts 属性 |
+| GPTC | lantiq,gptc-falcon | `0x1E100E00/0x100` | 设备描述未声明中断 |
 | SSC SPI | lantiq,spi-lantiq-ssc，disabled | `0x1E100D00/0x100` | 与启动 NOR 的 sflash 控制器不同 |
-| EBU | lantiq,ebu-falcon | `0x18000000/0x100` | 原厂节点地址 |
+| EBU | lantiq,ebu-falcon | `0x18000000/0x100` | 板级设备描述地址 |
 | sflash localbus | lantiq,sflash-falcon | `0x10000000/0x04000000` | 控制器窗口 64 MiB，实际 NOR 16 MiB |
 
 完整 PAD/GPIO 表见 [引脚映射](01_pinmux_and_sfp_mapping.md)。I2C 节点虽然有 gpios 属性，compatible 不含 i2c-gpio，不能据此声称自动回退为 GPIO 驱动。
@@ -42,29 +42,24 @@
 
 启动时镜像解析器还会注册 kernel/rootfs/rootfs_data 子分区，MTD 编号会随注册顺序变化。mtd0..3 不是跨内核可靠标识，应按标签和 geometry 识别。
 
-## 原厂脚本链
+## 启动职责与依赖
 
-S 序号来自 START；实际启用还取决于 rc.d 链接。完成脚本调用不等于硬件初始化成功。
+启动管理应按照硬件依赖组织，不把进程启动或配置请求成功当成硬件已经就绪。
 
-| 序号 | 脚本 | 职责 |
+| 阶段 | 职责 | 后续依赖 |
 | --- | --- | --- |
-| 40 | fw_env.sh | 从 /proc/mtd 生成环境配置，加载 i2c-dev 与 GPIO37/38 软件 I2C |
-| 45 | recover_goi.sh | 从 env goi_config 恢复校准归档 |
-| 60 | optic.sh | 加载光驱动，建立设备节点 |
-| 61 | onu.sh | PLOAM/GTC、GPHY/GPE 微码和共享缓冲初始化；按校准状态开 GTC watchdog |
-| 62 | sfp_eeprom.sh | SFP bank 内容、地址、写保护和 DDM 进程 |
-| 63 | pin_cfg.sh | TX_Disable 与 ONU LOS 配置，不直接写 sysfs pinselect |
-| 64 | lan.sh | SerDes、EIM、UNI 端口 |
-| 65 | lct.sh | mod_onu_netdev、本地维护网络 |
-| 85 | omcid.sh | MIB、OMCC version、iop mask；参数为 -d3 -p… -o… -i… -g… -l/tmp/log/debug |
-| 87 | load_dti_agent.sh | 仅 env gDtiaGentEnable=true 时启动 gpon_dti_agent -p9000 |
-| 89 | load_ocal.sh | 光校准用户态 |
-| 97 | monitomcid | OMCI 进程监控 |
+| 存储与环境 | 识别分区、读取板型和环境、准备可写存储 | 镜像选择、网络与校准配置 |
+| 校准恢复 | 装入本板光路参数与温度表 | 光模拟前端初始化 |
+| 硬件基础 | 时钟、复位、中断和控制通道 | GTC、GPE、光前端 |
+| GPON 数据通路 | 激活控制、GPHY/GPE 微码、共享缓冲和队列 | UNI、管理通道与业务转发 |
+| SFP 设备服务 | EEPROM、VPE1、DDM 和软控制 | 外部宿主的设备发现与状态读取 |
+| 引脚和 UNI | TX_Disable、LOS、串口争用、SerDes 模式 | 电气接口和宿主链路 |
+| 管理服务 | OMCI、光校准闭环、本地维护和进程监控 | 管理配置、故障定位与业务运行 |
 
-omcid.sh 自身不创建 /tmp/omci_pipe，也不直接向 omcid 传递 olt_type。不能把程序内部或其他脚本的行为记成它的命令行。
+DTI 调试服务是可选维护功能，设备环境项 gDtiaGentEnable=true 才启用该服务；正常 GPON 数据转发不以调试端口开放为前提。
 
-## 板型与 MAC 派生
+## 板型和 MAC 分配
 
-`extracted/rootfs/lib/falcon.sh` 优先读 cmdline boardname，再读 cpuinfo machine，最后读 DT model。SFP 返回一个 LAN 端口，LCT 通常为 lct0，但 .hgu/.fttdp 配置会改变结果。
+板型参数影响 UNI 数量与本地维护接口。MA5671A 的 SFP 配置为一个 UNI；逻辑维护接口数量不代表额外的物理端口。
 
-falcon_base_mac_get() 从 cmdline ethaddr 取基准地址，缺失时用源码固定回退值。falcon_mac_get() 偏移加在 **第 5 个八位组**，第 6 个保持不变：lct*/lan/lan0 +0，lan1 +1，host +2，wan +3。这不是 48 位 MAC 整体加法，亦不处理跨字节进位。
+设备的基准 MAC 可由启动环境 ethaddr 提供。接口地址的既有派生规则是对 **第 5 个八位组** 加偏移、第 6 个保持不变：本地维护和 UNI0 +0、预留 UNI1 +1、host +2、WAN 管理 +3。这是设备级分配约定，不是 SoC 固有规则，也不是对 48 位 MAC 作整体加法。配置地址时应检查唯一性和字节范围，不假定自动跨字节进位。

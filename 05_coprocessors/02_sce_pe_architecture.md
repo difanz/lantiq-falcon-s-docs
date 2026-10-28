@@ -36,7 +36,7 @@ SCE 内含 6 颗对称的 64 位处理单元（Processing Element，PE0–PE5）
 | PE5 | `VM50`、`VM51`、`VM52` | bit 20、21、22 | `0x00700000` |
 
 - 全芯片 18 台虚拟机的组合掩码为 `0x00777777`。
-- `PCTRL` 的寄存器位定义将每台 `Virtual Machine n.m` 关联至 4 个子线程标识 `Thread n.m.0`–`Thread n.m.3`；而每颗 PE 的物理硬件线程槽数为 8（6 颗 PE 共 48 个线程），总线程资源宏另定义为 56。这三种编号/计数不能直接等同；寄存器可编码的子线程标识不证明每个 VM 都实现 4 个独立物理线程。
+- `PCTRL` 的寄存器位定义将每台 `Virtual Machine n.m` 关联至 4 个子线程标识 `Thread n.m.0`–`Thread n.m.3`。这些标识用于控制和寻址，不能直接相乘来推导物理线程数量或同时执行的指令数。
 - 在全局信号唤醒寄存器 `ISIG0`–`ISIG2` 中，PE0–PE5 的首个管理线程（`THREAD_n_0_0`）按步长 16 排布在信号线 0、16、32、48、64、80 上。
 
 ## 3. PCTRL 处理器控制单元 (`0x1D600000`)
@@ -84,9 +84,3 @@ PE 外围的输入分发与输出汇聚由 `DISP`（`0x1D600500`）和 `MERGE`�
 
 - **DISP（Dispatcher）**：监控各 VM 的接收就绪状态，将线程请求汇总通知 `IQM`，由 `DISP.CTRL.ACT` 位控制状态机启停。
 - **MERGE（Merger）**：启用前需向 `MERGE.CTRL` 置位 `INITSTART` 执行内部 RAM 初始化，等待 `MERGE.CTRL.INITDONE` 置 1 后，再置位 `MERGE.CTRL.ACT` 开启发送仲裁。
-
-## 本地依据与适用范围
-
-`bsp/modules/onu/drv_onu_reg_pe.h`、`drv_onu_reg_pctrl.h`、`drv_onu_ll_sce.c:sce_fw_init()` 与 `include/drv_onu_resource_gpe.h`。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

@@ -52,34 +52,27 @@ MIPS 34Kc 的 32 KiB I-Cache 与 16 KiB D-Cache 由 `VPE0` 与 `VPE1` 共同访�
 * **休眠时钟门控寄存器 `SYS1_SCFG`（`0x1EF000B0`）与唤醒掩码 `SYS1_CPU0WCFG`（`0x1EF00080`）**：
   * 当 `SYS1_SCFG.CPU0CG`（位 `[8]`）置 `1` 且 `VPE0` / `VPE1` 执行 MIPS `WAIT` 指令进入空闲态时，硬件自动门控处理器核心时钟；一旦 `SYS1_CPU0WCFG.WUP`（位 `[31:0]`）所使能的中断源有效，硬件立即恢复核心时钟并进入中断向量。
 
-### 2. Boot ROM 与 `SBS0RAM`（`0xBF200000`）二级向量跳转状态机
+### 2. Boot ROM 与 `SBS0RAM`（`0xBF200000`）二级向量
 
-处理器复位入口为 `0xBFC00000`，但 NMI 与 EJTAG 具有各自异常入口，不能统称为从该地址重新执行。Falcon 平台在 `SBS0RAM` 起始区域（`0xBF200000`）保存复位、NMI 与 EJTAG 的二级向量指针。旧平台 `prom.c` 的 `ltq_soc_nmi_setup` 与 `ltq_soc_ejtag_setup` 分别写 `BOOT_NVEC`、`BOOT_EVEC`。以下图只表示平台使用的向量关系；image0 不含片上 Boot ROM，不能据此宣称其内部检查和上下文保存流程已被反汇编验证：
+处理器复位入口为 `0xBFC00000`，NMI 与 EJTAG 各有独立的异常入口。`SBS0RAM` 起始区域（`0xBF200000`）保存复位、NMI 与 EJTAG 的二级向量指针。以下图表示这些向量与引导控制字的关系；Boot ROM 内部的完整检查顺序和上下文保存过程尚未确认，不在本节规定范围内：
 
 ```mermaid
 flowchart TD
-    RST["硬件复位 / 软复位 / NMI / EJTAG 触发"]
-    ENTRY["进入对应的复位或异常入口"]
-    CHK_PW["检查 0xBF200020 == 0x4C545100 且 0xBF200024 == 0x0051544C"]
-    CHK_CAUSE["判断触发源类型 复位 / NMI / EJTAG"]
-    RVEC["读取 BOOT_RVEC 0xBF200000 若非零则跳转执行"]
-    NVEC["读取 BOOT_NVEC 0xBF200004 若非零则跳转执行"]
-    EVEC["读取 BOOT_EVEC 0xBF200008 若非零则跳转执行"]
-    COLD_BOOT["按 SYS1_BMC 启动模式执行 SPI Flash 0xB0000000 或 ASC0 串口冷启动"]
-
-    RST --> ENTRY --> CHK_PW
-    CHK_PW -->|魔数不匹配| COLD_BOOT
-    CHK_PW -->|魔数匹配| CHK_CAUSE
-    CHK_CAUSE -->|复位且 BOOT_RVEC != 0| RVEC
-    CHK_CAUSE -->|NMI 且 BOOT_NVEC != 0| NVEC
-    CHK_CAUSE -->|EJTAG 且 BOOT_EVEC != 0| EVEC
-    CHK_CAUSE -->|对应向量为 0| COLD_BOOT
+    SRAM["SBS0RAM 引导控制区"]
+    RVEC["BOOT_RVEC 0xBF200000 复位向量"]
+    NVEC["BOOT_NVEC 0xBF200004 NMI向量"]
+    EVEC["BOOT_EVEC 0xBF200008 EJTAG向量"]
+    PW["引导识别字 0xBF200020 / 0xBF200024"]
+    SRAM --> RVEC
+    SRAM --> NVEC
+    SRAM --> EVEC
+    SRAM --> PW
 ```
 
 * **`BOOT_RVEC`（`0xBF200000`）**：软复位重定向入口地址。系统执行全局软复位（写 `SYS1_RBT`）前，若需走完整冷启动流程，需将 `0xBF200000` 显式写 `0`。
-* **`BOOT_NVEC`（`0xBF200004`）**：平台写入的 NMI 二级向量指针，关联 Dying Gasp、PLL 与外部 NMI 源；ROM 内部的上下文保存及跳转细节不在此 dump 的证据范围。
+* **`BOOT_NVEC`（`0xBF200004`）**：NMI 二级向量指针，关联 Dying Gasp、PLL 与外部 NMI 源；ROM 内部的上下文保存及跳转细节尚未确认。
 * **`BOOT_EVEC`（`0xBF200008`）**：EJTAG 调试异常入口地址。
-* **`BOOT_PW1_REG`（`0xBF200020`）与 `BOOT_PW2_REG`（`0xBF200024`）**：双 32 位密码校验字。必须分别写入 `0x4C545100`（ASCII `'LTQ\0'`）和 `0x0051544C`（ASCII `'\0QTL'`，即前者的字节逆序），Boot ROM 才认可 `0xBF200000`–`0xBF200008` 中的向量指针有效。
+* **`BOOT_PW1_REG`（`0xBF200020`）与 `BOOT_PW2_REG`（`0xBF200024`）**：双 32 位引导识别字，配置值分别为 `0x4C545100`（ASCII `'LTQ\0'`）和 `0x0051544C`（ASCII `'\0QTL'`，即前者的字节逆序）。ROM 对识别字及各向量的完整判定顺序尚未确认。
 
 ### 3. NMI 源状态与跨 VPE 路由控制（`0x1EF000D0`–`0x1EF000E0`）
 

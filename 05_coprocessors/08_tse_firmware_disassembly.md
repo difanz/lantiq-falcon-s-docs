@@ -1,10 +1,10 @@
-# 5.8 TSE 微码固件反汇编逐行详解（`tse0.s` – `tse5.s`）
+# 5.8 TSE 微码指令示例（`tse0.s` – `tse5.s`）
 
-6 颗表搜索协处理器（`COP0`–`COP5`）上装载的微码映像（`tse0.bin`–`tse5.bin`）经反汇编后得到 `tse0.s`–`tse5.s` 六份汇编源文件，共计 185 条 16 位微码指令、29 项硬件表描述符配置（`.table`）、48 项自定义匹配寄存器初值（`.custom`）以及 16 个导出微码函数入口（`.export`）。以下列出每份反汇编文件的完整源码，并逐行解析全部伪指令与每一条微码指令的机器码位域、寄存器输入输出、硬件表访问及控制流转移行为。
+本节以 `tse0.bin`–`tse5.bin` 六组微码配置展示 COP0–COP5 的执行接口，共包含 185 条 16 位指令、29 项表描述符配置（`.table`）、48 项自定义匹配寄存器初值（`.custom`）与 16 个导出入口（`.export`）。以下采用汇编记法表示指令字与装载记录；表配置和算法属于该组微码示例，不是所有 Falcon 应用必须采用的固定策略。
 
 ---
 
-## 1. 反汇编伪指令的硬件装载语义
+## 1. 装载伪指令的硬件装载语义
 
 每份 `.s` 文件顶部的伪指令直接对应微码容器中的逻辑地址窗口，在硬件初始化阶段通过 `LINK` 总线向目标 COP 的 `Table 0`（内部控制寄存器空间）发起 `WRITE (cmd = 2)` 命令完成配置：
 
@@ -14,19 +14,19 @@
 | `.export <id>, "<name>", <byte_addr>` | `0xF800` (`INTERFACE`) + `0xE000` (`NAMES`) | 映射为 `EXEC` 命令的入口 PC | 将全局导出函数编号 `<id>`（`1`–`25`）及符号名 `<name>` 绑定到代码段字节偏移 `<byte_addr>`。PE 或主控发起 `EXEC` 命令时，硬件将 `PC` 置为 `<byte_addr> >> 1` |
 | `.custom <idx>, <val32>` | `0xF400`–`0xF41F` | `0x300 + <idx>` (`CUSTOM0`–`CUSTOM7`) | 初始化 `CUSTOM` 匹配模式使用的 8 个 32 位协议比较寄存器。容器默认将 `CUSTOM1`–`CUSTOM4` 设为 `0xFFFF0000`（屏蔽 `ETY1`–`ETY4`），其余清零 |
 | `.table 0, empty` | `0xC000`–`0xC00F` | `0x000`–`0x003` | 表 0 占位记录（4 个 32 位字全 `0`），硬件跳过不写，因为表 0 自身即为 COP 寄存器控制面 |
-| `.table <n>, type=..., func=..., width=..., key=..., mask=..., kmsk=..., size=..., base=..., aux_valid=..., count=..., aux=...` | `0xC010 + (n-1)*0x10` | `0x004 + (n-1)*4` (`TABLEn0`–`TABLEn3`) | 配置当前 COP 物理表 `<n>`（`1`–`6`）的 4 个 32 位硬件控制寄存器：`TABLEn0`（`DATA_MASK[31:16]`、`KEY_SIZE[10:8]`、`ENTRY_SIZE[7:6]`、`FUNCTION[5:3]`、`TYPE[2:0]`）、`TABLEn1`（`SIZE[31:16]`、`BASE[15:0]`）、`TABLEn2`（`AUX_V[31]`、`ENTRY_COUNTER[25:16]`、`AUX[15:0]`）及第四个零填充字。以寄存器头文件定义为准，不能将反汇编器打印字段名重新排列成另一套硬件布局 |
+| `.table <n>, type=..., func=..., width=..., key=..., mask=..., kmsk=..., size=..., base=..., aux_valid=..., count=..., aux=...` | `0xC010 + (n-1)*0x10` | `0x004 + (n-1)*4` (`TABLEn0`–`TABLEn3`) | 配置当前 COP 物理表 `<n>`（`1`–`6`）的 4 个 32 位硬件控制寄存器：`TABLEn0`（`DATA_MASK[31:16]`、`KEY_SIZE[10:8]`、`ENTRY_SIZE[7:6]`、`FUNCTION[5:3]`、`TYPE[2:0]`）、`TABLEn1`（`SIZE[31:16]`、`BASE[15:0]`）、`TABLEn2`（`AUX_V[31]`、`ENTRY_COUNTER[25:16]`、`AUX[15:0]`）及第四个零填充字 |
 | `.code <byte_addr>` | `0x0000`–`0x3FFF` | `0x200 + (<byte_addr> >> 1)` (`CRAM`) | 指示后续 16 位微码指令按顺序装入代码 RAM（`CRAM`），起始指令地址 `PC = <byte_addr> >> 1` |
 | `.code_tail <byte_addr>` | `0x0000`–`0x3FFF` | `0x200 + (<byte_addr> >> 1)` (`CRAM`) | 指示位于 `.table` 记录之后的一条尾部代码记录（仅 `tse1.s` 使用，在表配置完成后将 `PC = 0` 的跳转指令写入 `CRAM[0]`） |
 
 ---
 
-## 2. `tse0.s`（`COP0 = FID`，40 条指令）完整反汇编与逐行详解
+## 2. `tse0.s`（`COP0 = FID`，40 条指令）指令序列与行为说明
 
-### 2.1 `tse0.s` 完整反汇编源码
+### 2.1 `tse0.s` 指令序列
 
 ```text
 ; =============================================================================
-; Disassembled by cop-disas from: tse0.bin
+; Microcode image: tse0.bin
 ; Records: 31 (recorded: 31) | End PC: 0 | Instructions: 40
 ; =============================================================================
 
@@ -110,7 +110,7 @@ IF_ETHFILT_SEARCHW:
 ; --- Export ID 24: IF_ACL_SEARCH_3, byte_addr=0x0040, PC=32 (0x20) ---
 IF_ACL_SEARCH_3:
     mov %data2, %data1                 ; [PC=32 (0x20) @0x0040: 7340]
-    mov %aux, %data1.16                ; [PC=33 (0x21) @0x0042: 7718] (inferred dst=7,src=0,sel=3)
+    .word 0x7718                     ; [PC=33 (0x21) @0x0042: 7718] 操作数语义未定义
     mov %index, 0                      ; [PC=34 (0x22) @0x0044: 4000]
     read 4, 0, 256                     ; [PC=35 (0x23) @0x0046: 81a0]
     mov %data1, %data2                 ; [PC=36 (0x24) @0x0048: 7260]
@@ -121,7 +121,7 @@ IF_ACL_SEARCH_3:
 
 ### 2.2 `tse0.s` 头部伪指令逐行详解（行 7–40）
 
-| 源码行 | 伪指令内容 | 逐行硬件作用与寄存器配置说明 |
+| 示例行 | 伪指令内容 | 逐行硬件作用与寄存器配置说明 |
 | --- | --- | --- |
 | `7`–`13` | `.comment "TOOL:Version 4.54"` 等 7 行 | 声明 `COP0`（`FID`）微码由汇编器 `4.54` 生成，微码版本 `3.11`，实现 `TSE0` 协处理器微程序 |
 | `16` | `.export 10, "IF_FID_LOOKUP_MC", 0x0000` | 将导出函数 ID `10`（`IF_FID_LOOKUP_MC`，组播/只读 FID 查找）绑定至字节偏移 `0x0000`（入口 `PC = 0`） |
@@ -141,7 +141,7 @@ IF_ACL_SEARCH_3:
 
 调用前置条件：PE 将 32 位内外层 VLAN 键（`prio_inner:vid_inner:prio_outer:vid_outer`）放入请求帧装入 `%key[31:0]`，发起 `EXEC (PC = 0)`：
 
-| 源码行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
+| 示例行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
 | --- | --- | --- | --- | --- |
 | `44` | `0` (`0x00`) | `0xe010` | `settab 2` | `op=0x1c (settab)`, `table=2`, `ret=0`。将当前活动表切换为 `Table 2`（`FID_HASH_TABLE`），准备对 `%key[31:0]` 执行 7 位硬件 CRC 哈希 |
 | `45` | `1` (`0x01`) | `0xa010` | `searchr 2, 0, 32` | `op=0x14 (searchr)`, `len=0 (32b)`, `off=0`, `table=2`, `ret=0`。以 `%key[31:0]` 哈希索引 `Table 2`，读取 32 位哈希桶头至 `%data1[31:0]`；若桶有效（`valid == 1`）则置 `%res1 = 1`，否则 `%res1 = 0` |
@@ -154,7 +154,7 @@ IF_ACL_SEARCH_3:
 
 调用前置条件：单播帧或主控请求查找 32 位 VLAN 键对应的 `FID`，且当表项不存在时自动在 `Table 1`（`FID_ASSIGNMENT_TABLE`）和 `Table 2`（`FID_HASH_TABLE`）中分配并插入新节点。调用方将 32 位 VLAN 键装入 `%key[31:0]`，同时将待插入的 64 位表项模板装入 `%data1[63:0]`：
 
-| 源码行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
+| 示例行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
 | --- | --- | --- | --- | --- |
 | `53` | `6` (`0x06`) | `0xe010` | `settab 2` | 选择 `Table 2`（`FID_HASH_TABLE`）作为当前活动表 |
 | `54` | `7` (`0x07`) | `0x7340` | `mov %data2, %data1` | `dst=%data2`, `src=%data1`。将调用方传入的 64 位待插入模板备份到 `%data2`，防止后续 `searchr` 覆盖 `%data1` |
@@ -183,7 +183,7 @@ IF_ACL_SEARCH_3:
 
 调用前置条件：调用方将端口 EtherType 子表起始下标装入 `%index`，待比对的 16 位 EtherType 装入 `%key[15:0]`，命中后待写回的 32 位字装入 `%data1[31:0]`：
 
-| 源码行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
+| 示例行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
 | --- | --- | --- | --- | --- |
 | `78` | `28` (`0x1c`) | `0xc018` | `search 3` | `op=0x18 (search)`, `table=3`, `ret=0`。从 `%index` 起在 `Table 3`（`ETHERTYPE_FILTER_TABLE`，`LIST`）中顺序比对 16 位 `ethertype` 直至命中或遇到 `end == 1`。命中时 `%res1 = 1` 且 `%index` 指向命中项 |
 | `79` | `29` (`0x1d`) | `0x031f` | `[!res1\|err] goto 0x1f` | 若未命中（`%res1 == 0`）或越界出错（`err == 1`），跳过写操作直接转至 `PC = 31` 返回 |
@@ -194,10 +194,10 @@ IF_ACL_SEARCH_3:
 
 该 8 指令序列在 `COP0`（`IF_ACL_SEARCH_3`）、`COP2`（`IF_ACL_SEARCH_1`）、`COP3`（`IF_ACL_SEARCH_2`）与 `COP5`（`IF_ACL_SEARCH_0`）中完全一致（仅 `COP5` 使用表 `5`/`6`，其余使用表 `4`/`5`）。调用前置条件：PE 将 128 位报文特征键装入 `%key[127:0]`，将当前 ACL 搜索起始规则索引装入 `%data1[29:16]`（即 `%data1.16`），发起 `EXEC`：
 
-| 源码行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
+| 示例行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
 | --- | --- | --- | --- | --- |
 | `85` | `32` (`0x20`) | `0x7340` | `mov %data2, %data1` | 将输入 `%data1` 备份至 `%data2`，防止后续 `read` 256 位掩码项时冲掉输入参数 |
-| `86` | `33` (`0x21`) | `0x7718` | `mov %aux, %data1.16` | `dst=7 (%aux)`, `src=0 (%data1.16)`, `sel=3`。推测为暂存规则起始索引；`0x7718` 在原打印器中无操作数名称，`%data1[29:16]` 的具体切片未证实 |
+| `86` | `33` (`0x21`) | `0x7718` | `.word 0x7718` | 操作数语义未定义；保留指令字 |
 | `87` | `34` (`0x22`) | `0x4000` | `mov %index, 0` | `op=0x08 (mov_imm index)`, `imm=0`。将表索引 `%index` 清零，指向 ACL 表的第 0 号槽位（全局掩码槽位） |
 | `88` | `35` (`0x23`) | `0x81a0` | `read 4, 0, 256` | `op=0x10 (read)`, `len=3 (256b)`, `off=0`, `table=4`。从 `Table 4`（`GENERIC` 视图）索引 `0` 读取 256 位初始掩码项至 `%data1` / 内部三态掩码锁存器 |
 | `89` | `36` (`0x24`) | `0x7260` | `mov %data1, %data2` | 从 `%data2` 恢复原始输入数据至 `%data1` |
@@ -207,13 +207,13 @@ IF_ACL_SEARCH_3:
 
 ---
 
-## 3. `tse1.s`（`COP1 = FWD`，85 条指令）完整反汇编与逐行详解
+## 3. `tse1.s`（`COP1 = FWD`，85 条指令）指令序列与行为说明
 
-### 3.1 `tse1.s` 完整反汇编源码
+### 3.1 `tse1.s` 指令序列
 
 ```text
 ; =============================================================================
-; Disassembled by cop-disas from: tse1.bin
+; Microcode image: tse1.bin
 ; Records: 37 (recorded: 37) | End PC: 0 | Instructions: 85
 ; =============================================================================
 
@@ -360,7 +360,7 @@ IF_FWD_AGE:
 
 ### 3.2 `tse1.s` 头部伪指令逐行详解（行 7–41 与行 140）
 
-| 源码行 | 伪指令内容 | 逐行硬件作用与寄存器配置说明 |
+| 示例行 | 伪指令内容 | 逐行硬件作用与寄存器配置说明 |
 | --- | --- | --- |
 | `7`–`13` | `.comment "TOOL:Version 4.54"` 等 7 行 | 声明 `COP1`（`FWD`）微码标题为 `FWD TSE Micro Program`，版本 `3.1` |
 | `16` | `.export 1, "IF_FWD_AGE", 0x0000` | 将导出函数 ID `1`（`IF_FWD_AGE`，单步老化扫描）绑定至 `0x0000`（`PC = 0`） |
@@ -381,7 +381,7 @@ IF_FWD_AGE:
 
 调用前置条件：PE 将 64 位目的转发键（`FID + DMAC` 或 `FID + DIP`）装入 `%key[63:0]`，发起 `EXEC (PC = 1)`：
 
-| 源码行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
+| 示例行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
 | --- | --- | --- | --- | --- |
 | `45` | `1` (`0x01`) | `0xe008` | `settab 1` | `op=0x1c`, `table=1`。选择 `Table 1`（`SHORT_FWD_HASH_TABLE`）作为当前活动表 |
 | `46` | `2` (`0x02`) | `0xa008` | `searchr 1, 0, 32` | 对 64 位 `%key` 计算 9 位 CRC 哈希，从 `Table 1` 读取 32 位哈希桶头至 `%data1[31:0]`，桶有效标志存入 `%res1` |
@@ -399,7 +399,7 @@ IF_FWD_AGE:
 
 调用前置条件：PE 入向线程在收到开启源学习的报文时，将 64 位源键（`FID + SMAC`）装入 `%key[63:0]`，将携带当前入向源端口 `source_port`（位于 `bit 7:0`）的 64 位控制字装入 `%data1[63:0]`，发起 `EXEC (PC = 12)`：
 
-| 源码行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
+| 示例行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
 | --- | --- | --- | --- | --- |
 | `59` | `12` (`0x0c`) | `0xe010` | `settab 2` | 选择 `Table 2`（`SHORT_FWD_TABLE`）准备后续比较 |
 | `60` | `13` (`0x0d`) | `0x7340` | `mov %data2, %data1` | 将包含入向 `source_port`（`%data1[7:0]`）的输入控制字保存至 `%data2`，供硬件 `[eq8]` 比较器作为右操作数 |
@@ -420,7 +420,7 @@ IF_FWD_AGE:
 
 调用前置条件：PE 或主控将 64 位键（`FID + MAC/IPv4`）装入 `%key[63:0]`，将待写入的高 64 位控制字（含 `learning_limitation_enable` 即 `%data1.9`、以及 `source_port` 即 `%data1[7:0]`）装入 `%data1[63:0]`，发起 `EXEC (PC = 26)`：
 
-| 源码行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
+| 示例行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
 | --- | --- | --- | --- | --- |
 | `76` | `26` (`0x1a`) | `0xe010` | `settab 2` | 选择 `Table 2`（`SHORT_FWD_TABLE`） |
 | `77` | `27` (`0x1b`) | `0x7340` | `mov %data2, %data1` | 将待插入的 64 位控制字备份至 `%data2` |
@@ -458,7 +458,7 @@ IF_FWD_AGE:
 
 调用前置条件：主控删除指定键（传入 64 位 `%key` 发起 `EXEC (PC = 57)`），或由 `IF_FWD_AGE` 在检测到表项老化后于 `PC = 83` 通过 `[aged] goto 0x39` 直接内部跳转至此（此时 `%key` 已被 `PC = 80` 装入老化表项的 64 位键）：
 
-| 源码行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
+| 示例行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
 | --- | --- | --- | --- | --- |
 | `110` | `57` (`0x39`) | `0xe008` | `settab 1` | 选择 `Table 1`（`SHORT_FWD_HASH_TABLE`） |
 | `111` | `58` (`0x3a`) | `0xa008` | `searchr 1, 0, 32` | 查找 64 位 `%key` 所在的哈希桶头 |
@@ -485,7 +485,7 @@ IF_FWD_AGE:
 
 调用前置条件：PE 老化线程按序将待扫描的槽位号（`0`–`1023`）装入 `%index`，发起 `EXEC (PC = 0)`：
 
-| 源码行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
+| 示例行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
 | --- | --- | --- | --- | --- |
 | `144` | `0` (`0x00`) | `0x00cd` | `goto 0x4d` | `op=0 (branch)`, `cond=1 (always)`, `target=0x4d (77)`。从入口 `PC = 0` 无条件跳转至位于 `PC = 77` 的老化扫描主体 |
 | `130` | `77` (`0x4d`) | `0xe020` | `settab 4` | 选择 `Table 4`（`SHORT_FWD_TABLE_MAC_ALTERNATE`，与 `Table 2` 共享基址 `0x0200` 的 `VARRAY` 视图） |
@@ -499,13 +499,13 @@ IF_FWD_AGE:
 
 ---
 
-## 4. `tse2.s`（`COP2 = TAG`，24 条指令）完整反汇编与逐行详解
+## 4. `tse2.s`（`COP2 = TAG`，24 条指令）指令序列与行为说明
 
-### 4.1 `tse2.s` 完整反汇编源码
+### 4.1 `tse2.s` 指令序列
 
 ```text
 ; =============================================================================
-; Disassembled by cop-disas from: tse2.bin
+; Microcode image: tse2.bin
 ; Records: 25 (recorded: 25) | End PC: 0 | Instructions: 24
 ; =============================================================================
 
@@ -565,7 +565,7 @@ IF_TAG_FILTER:
 ; --- Export ID 22: IF_ACL_SEARCH_1, byte_addr=0x0020, PC=16 (0x10) ---
 IF_ACL_SEARCH_1:
     mov %data2, %data1                 ; [PC=16 (0x10) @0x0020: 7340]
-    mov %aux, %data1.16                ; [PC=17 (0x11) @0x0022: 7718] (inferred dst=7,src=0,sel=3)
+    .word 0x7718                     ; [PC=17 (0x11) @0x0022: 7718] 操作数语义未定义
     mov %index, 0                      ; [PC=18 (0x12) @0x0024: 4000]
     read 4, 0, 256                     ; [PC=19 (0x13) @0x0026: 81a0]
     mov %data1, %data2                 ; [PC=20 (0x14) @0x0028: 7260]
@@ -576,7 +576,7 @@ IF_ACL_SEARCH_1:
 
 ### 4.2 `tse2.s` 头部伪指令逐行详解（行 7–38）
 
-| 源码行 | 伪指令内容 | 逐行硬件作用与寄存器配置说明 |
+| 示例行 | 伪指令内容 | 逐行硬件作用与寄存器配置说明 |
 | --- | --- | --- |
 | `7`–`13` | `.comment "TOOL:Version 4.54"` 等 7 行 | 声明 `COP2`（`TAG`）微码标题为 `TAG TSE Micro Program`，版本 `3.9` |
 | `16` | `.export 6, "IF_TAG_FILTER", 0x0000` | 将导出函数 ID `6`（`IF_TAG_FILTER`，VLAN 标签过滤）绑定至 `0x0000`（`PC = 0`） |
@@ -593,7 +593,7 @@ IF_ACL_SEARCH_1:
 
 调用前置条件：PE 将 `TAGGING_FILTER_TABLE` 的入口索引装入 `%index`，待过滤帧的 16 位 TCI 装入 `%key[15:0]`，带标签标志 `tagged`（`1` = 有标签，`0` = 无标签）装入 `%aux[0]`，发起 `EXEC (PC = 0)`：
 
-| 源码行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
+| 示例行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
 | --- | --- | --- | --- | --- |
 | `42` | `0` (`0x00`) | `0xe008` | `settab 1` | 选择 `Table 1`（`TAGGING_FILTER_TABLE`） |
 | `43` | `1` (`0x01`) | `0xa088` | `searchr 1, 0, 64` | 按 `%index` 读取 `Table 1` 的 64 位过滤描述符至 `%data1[63:0]`：低 32 位包含 `pass_on_match_enable`（bit 19）、`tagged_drop_enable`（bit 18）、`tagged_pass_enable`（bit 17）、`untagged_drop_enable`（bit 16）与 `tci_mask`（bits 15:0）；高 32 位包含 `valid`（bit 63）与 `vlan_table_index`（bits 61:48） |
@@ -618,13 +618,13 @@ IF_ACL_SEARCH_1:
 
 ---
 
-## 5. `tse3.s`（`COP3 = TBL`，18 条指令）完整反汇编与逐行详解
+## 5. `tse3.s`（`COP3 = TBL`，18 条指令）指令序列与行为说明
 
-### 5.1 `tse3.s` 完整反汇编源码
+### 5.1 `tse3.s` 指令序列
 
 ```text
 ; =============================================================================
-; Disassembled by cop-disas from: tse3.bin
+; Microcode image: tse3.bin
 ; Records: 27 (recorded: 27) | End PC: 0 | Instructions: 18
 ; =============================================================================
 
@@ -682,7 +682,7 @@ IF_IPV6HASH_SEARCHR:
 ; --- Export ID 23: IF_ACL_SEARCH_2, byte_addr=0x0014, PC=10 (0x0a) ---
 IF_ACL_SEARCH_2:
     mov %data2, %data1                 ; [PC=10 (0x0a) @0x0014: 7340]
-    mov %aux, %data1.16                ; [PC=11 (0x0b) @0x0016: 7718] (inferred dst=7,src=0,sel=3)
+    .word 0x7718                     ; [PC=11 (0x0b) @0x0016: 7718] 操作数语义未定义
     mov %index, 0                      ; [PC=12 (0x0c) @0x0018: 4000]
     read 4, 0, 256                     ; [PC=13 (0x0d) @0x001a: 81a0]
     mov %data1, %data2                 ; [PC=14 (0x0e) @0x001c: 7260]
@@ -693,7 +693,7 @@ IF_ACL_SEARCH_2:
 
 ### 5.2 `tse3.s` 头部伪指令逐行详解（行 7–39）
 
-| 源码行 | 伪指令内容 | 逐行硬件作用与寄存器配置说明 |
+| 示例行 | 伪指令内容 | 逐行硬件作用与寄存器配置说明 |
 | --- | --- | --- |
 | `7`–`13` | `.comment "TOOL:Version 4.54"` 等 7 行 | 声明 `COP3`（`TBL`）微码标题为 `TBL TSE Micro Program`，版本 `3.16` |
 | `16` | `.export 7, "IF_IPV6_REDUCE", 0x0000` | 将导出函数 ID `7`（`IF_IPV6_REDUCE`，128 位 IPv6 地址压缩查找）绑定至 `0x0000`（`PC = 0`） |
@@ -709,7 +709,7 @@ IF_ACL_SEARCH_2:
 
 ### 5.3 `IF_IPV6_REDUCE`（行 42–48，`PC = 0`–`5`）与 `IF_IPV6HASH_SEARCHR`（行 51–55，`PC = 6`–`9`）逐行详解
 
-| 源码行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
+| 示例行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
 | --- | --- | --- | --- | --- |
 | `43` | `0` (`0x00`) | `0xe010` | `settab 2` | **`IF_IPV6_REDUCE` 入口**：选择 `Table 2`（`IPV6_REDUCTION_HASH_TABLE`） |
 | `44` | `1` (`0x01`) | `0xa010` | `searchr 2, 0, 32` | 对调用方传入的 128 位 IPv6 地址（`%key[127:0]`）计算 8 位 CRC 哈希值，读取 `Table 2` 对应的 32 位哈希桶头至 `%data1[31:0]`，桶有效标志写入 `%res1` |
@@ -728,13 +728,13 @@ IF_ACL_SEARCH_2:
 
 ---
 
-## 6. `tse4.s`（`COP4 = MSF`，0 条指令）完整反汇编与逐行详解
+## 6. `tse4.s`（`COP4 = MSF`，0 条指令）指令序列与行为说明
 
-### 6.1 `tse4.s` 完整反汇编源码
+### 6.1 `tse4.s` 指令序列
 
 ```text
 ; =============================================================================
-; Disassembled by cop-disas from: tse4.bin
+; Microcode image: tse4.bin
 ; Records: 19 (recorded: 19) | End PC: 0 | Instructions: 0
 ; =============================================================================
 
@@ -771,7 +771,7 @@ IF_ACL_SEARCH_2:
 
 `COP4`（`MSF`）的所有表操作均能在单条硬件 `LINKC1` 原语内完成，无需多步微码组合，因此 `tse4.bin` 仅包含注释段、`.custom` 寄存器初值与 4 张硬件表的寄存器描述符（共 19 条 `type = 3` 记录）：
 
-| 源码行 | 伪指令内容 | 逐行硬件作用与硬连线访问方式 |
+| 示例行 | 伪指令内容 | 逐行硬件作用与硬连线访问方式 |
 | --- | --- | --- |
 | `7`–`13` | `.comment "TOOL:Version 4.54"` 等 7 行 | 声明 `COP4`（`MSF`）微码标题为 `MSF TSE Micro Program`，版本 `3.3` |
 | `16`–`23` | `.custom 0`–`.custom 7` | 初始化 `CUSTOM0`–`CUSTOM7` 寄存器 |
@@ -783,13 +783,13 @@ IF_ACL_SEARCH_2:
 
 ---
 
-## 7. `tse5.s`（`COP5 = EXT`，18 条指令）完整反汇编与逐行详解
+## 7. `tse5.s`（`COP5 = EXT`，18 条指令）指令序列与行为说明
 
-### 7.1 `tse5.s` 完整反汇编源码
+### 7.1 `tse5.s` 指令序列
 
 ```text
 ; =============================================================================
-; Disassembled by cop-disas from: tse5.bin
+; Microcode image: tse5.bin
 ; Records: 27 (recorded: 27) | End PC: 0 | Instructions: 18
 ; =============================================================================
 
@@ -844,7 +844,7 @@ IF_VLAN_TRANSLATE:
 ; --- Export ID 21: IF_ACL_SEARCH_0, byte_addr=0x0014, PC=10 (0x0a) ---
 IF_ACL_SEARCH_0:
     mov %data2, %data1                 ; [PC=10 (0x0a) @0x0014: 7340]
-    mov %aux, %data1.16                ; [PC=11 (0x0b) @0x0016: 7718] (inferred dst=7,src=0,sel=3)
+    .word 0x7718                     ; [PC=11 (0x0b) @0x0016: 7718] 操作数语义未定义
     mov %index, 0                      ; [PC=12 (0x0c) @0x0018: 4000]
     read 5, 0, 256                     ; [PC=13 (0x0d) @0x001a: 81a8]
     mov %data1, %data2                 ; [PC=14 (0x0e) @0x001c: 7260]
@@ -855,7 +855,7 @@ IF_ACL_SEARCH_0:
 
 ### 7.2 `tse5.s` 头部伪指令逐行详解（行 7–39）
 
-| 源码行 | 伪指令内容 | 逐行硬件作用与寄存器配置说明 |
+| 示例行 | 伪指令内容 | 逐行硬件作用与寄存器配置说明 |
 | --- | --- | --- |
 | `7`–`13` | `.comment "TOOL:Version 4.54"` 等 7 行 | 声明 `COP5`（`EXT`）微码标题为 `EXT TSE Micro Program`，版本 `3.8` |
 | `16` | `.export 9, "IF_VLAN_TRANSLATE", 0x0000` | 将导出函数 ID `9`（`IF_VLAN_TRANSLATE`，Extended VLAN 规则查找与标签改写合成）绑定至 `0x0000`（`PC = 0`） |
@@ -871,7 +871,7 @@ IF_ACL_SEARCH_0:
 
 ### 7.3 `IF_VLAN_TRANSLATE`（行 42–52，`PC = 0`–`9`）与 `IF_ACL_SEARCH_0`（行 55–63，`PC = 10`–`17`）逐行详解
 
-| 源码行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
+| 示例行 | PC (`Hex`) | 半字机器码 | 汇编指令 | 机器码位域拆解与逐行硬件执行动作 |
 | --- | --- | --- | --- | --- |
 | `43` | `0` (`0x00`) | `0xe008` | `settab 1` | **`IF_VLAN_TRANSLATE` 入口**：选择 `Table 1`（`EXTENDED_VLAN_TABLE`） |
 | `44` | `1` (`0x01`) | `0xa088` | `searchr 1, 0, 64` | 按输入 `%index` 读取 `Table 1` 的 64 位端口 Extended VLAN 描述符至 `%data1[63:0]`（含 `inner_tpid_1_value`、`inner_tpid_2_value`、`max_tags_to_remove` 与 `rule_table_pointer`） |
@@ -885,10 +885,4 @@ IF_ACL_SEARCH_0:
 | `52` | `9` (`0x09`) | `0x0006` | `return 128` | `ret=6 (128b)`。向 PE 线程返回 128 位（4 个 32 位字）标签重写指令包 |
 | `56`–`63` | `10`–`17` (`0x0a`–`0x11`) | `0x7340`..`0x70c4` | **`IF_ACL_SEARCH_0`**（8 条指令） | ACL 第 1 通道（Lane 0）三态查找序列：由于 `COP5` 前 4 张表已被 Extended VLAN 与 L4 Filter 占用，因此 `PC = 13` 执行 `read 5, 0, 256`（机器码 `0x81a8`，从 `Table 5` 读取 256 位掩码），`PC = 16` 执行 `searchr 6, 0, 128`（机器码 `0xa130`，在 `Table 6` 上执行三态匹配），其余 6 条指令与 `IF_ACL_SEARCH_1/2/3` 完全相同 |
 
-证据边界：代码中的 `(inferred dst=7,src=0,sel=3)` 是人为推断标记。`0x7718` 的 `mov %aux, %data1.16` 不是原调试打印器已经支持的助记符，不能据此断言该条的切片宽度。其余逐行解释中的表用途来自主机表结构和上下文；不代表已经上板单步或掌握每条指令的周期数。
-
-## 本地依据与适用范围
-
-`extracted/rootfs/lib/firmware/sfu/tse0.bin`–`tse5.bin` 与 `docs/COP_ISA.md`；寄存器配置字布局以 `bsp/modules/onu/drv_onu_reg_coplink_cop.h` 核对。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。
+`0x7718` 的操作数语义尚未定义，示例保留原指令字，不将其作为已定义的 `mov` 变体。本节不规定单条指令的执行周期。

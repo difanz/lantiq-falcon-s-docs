@@ -94,9 +94,3 @@ flowchart LR
 3. **硬件超时保护与段回收**：
    - 若某报文在 PE 线程中被判定为丢弃，MERGE 递增 `DISCARDCOUNTER`（`0x014`），并通过 `FSQMQ`（`0x018`）通道将该报文的 `HLSA`–`TLSA` 链表直接返还给 FSQM 回收。
    - 若某个线程因异常挂死导致保序窗口阻塞超过硬件看门狗门限（且 `CTRL.TIMEOUTDEACT == 0`），MERGE 触发超时中断并跳过该序号，防止整个数据面锁死。
-
-## 本地依据与适用范围
-
-`bsp/modules/onu/drv_onu_reg_disp.h`、`drv_onu_reg_merge.h`、`drv_onu_reg_pctrl.h` 与 `include/drv_onu_resource_gpe.h`。控制寄存器中的 VM/线程名字不能直接乘成已实现的物理线程数量。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

@@ -1,6 +1,6 @@
 # 9.1 PLOAM 状态机
 
-本页给出状态机概览。消息号以 `bsp/modules/onu/include/drv_onu_ploam_interface.h` 为准，状态处理见 `drv_onu_ploam.c`，寄存器偏移见 `drv_onu_reg_gtc.h` 与 optic 的 `drv_optic_reg_pma.h`。O5 表示 PLOAM 激活成功，不能单独证明 OMCI 业务配置、UNI 链路或数据转发成功。
+本页说明激活状态、管理消息和硬件控制的关系。O5 表示 PLOAM 激活成功，不能单独证明 OMCI 业务配置、UNI 链路或数据转发成功。
 
 `GTC`（物理基址 `0x1DC00000`）与 `PMA`（物理基址 `0x1DD00000`）协同实现 ITU-T G.984.3 定义的 GPON 物理层操作管理维护（PLOAM）通道及 O1–O7 激活状态机。硬件负责下行 13 字节 PLOAMd 帧的 CRC-8 校验、`ONU-ID` 过滤、上行 PLOAMu 突发插入、序列号请求随机延时退避以及均衡时延（`EqD`）字/比特级定时控制；状态机逻辑消费 `GTC` 接收 FIFO 与物理层告警中断（`LOS`、`LOF`），驱动从初始同步（O1）到正常工作态（O5）的寄存器重配置。
 
@@ -62,18 +62,18 @@ PLOAM 状态机在状态迁移过程中直接读写的 `GTC`（`0x1DC00000`）�
 ### 2.1 O1 (Initial State) 与 O2 (Standby State)
 
 1. **O1 帧同步捕获**：
-   - 状态机复位 `upstr_gtc_onuid = 0xFF`，关闭 `OCTRLG` 数据通道与 `PMA` 上行激光器突发输出，清空 128 项下行 PLOAM 环形缓冲队列（`ds_write_idx = ds_read_idx = 0`），并启动 1000 ms 同步监控定时器 `TO0`。
-   - 若非易失环境标志 `emergency_stop_state != 0`，状态机直接转入 **O7**。
+   - 状态机复位 `upstr_gtc_onuid = 0xFF`，关闭 `OCTRLG` 数据通道与 `PMA` 上行激光器突发输出，清空 128 项下行 PLOAM 环形缓冲队列，并启动 1000 ms 同步监控定时器 `TO0`。
+   - 若非易失环境中保存了紧急停止状态，状态机直接转入 **O7**。
    - 当 `PMA` 光接收锁相环锁定（`LOS == 0`）且 `GTC` 连续捕获 `PSync = 0xB6AB31E0` 进入 `SYNC` 态（`LOF == 0`）时，停止 `TO0` 并迁入 **O2**。
 2. **O2 上行突发开销配置 (`Upstream_Overhead`, Msg ID `0x01`)**：
-   - 在 O2 态等待 OLT 连续广播 3 次相同的 `Upstream_Overhead` 消息（`ds_repeat == 3`）。
+   - 在 O2 态等待 OLT 连续广播 3 次相同的 `Upstream_Overhead` 消息。
    - 解析消息载荷中的保护比特数（Guard Bits）、Type 1 与 Type 2 前导码比特数、Type 3 前导码字节模式、3 字节定界符（Delimiter）以及状态标志位（含功率等级模式与预设均衡时延 `start_offset`），依次写入 `GTC` 上行开销寄存器组。
    - 若消息指示启用预设 `EqD`，将 `start_offset` 写入 `upstr_gtc_offset`；随后开启 `GTC` 对序列号请求授权（`SN_Request`）的响应及随机延时发生器（Random Delay，范围 `0`–`48` µs），迁入 **O3**。
 
 ### 2.2 O3 (Serial Number State) 与 O4 (Ranging State)
 
 1. **O3 序列号上报与 `ONU-ID` 分配**：
-   - 每当 BWMAP 中出现针对序列号发现的授权且通过 `SN_Mask` 掩码过滤时，`GTC` 在随机退避延时后自动触发突发发送，上报 `Serial_Number_ONU`（Msg ID `0x01`，含 4 字节 Vendor-ID、4 字节 VSSN、随机延时值及 GEM 支持标志）。上行序列号请求累计次数计入 `sn_req_total`，达到阈值 `sn_req_thr` 时置位告警标志。
+   - 每当 BWMAP 中出现针对序列号发现的授权且通过 `SN_Mask` 掩码过滤时，`GTC` 在随机退避延时后自动触发突发发送，上报 `Serial_Number_ONU`（Msg ID `0x01`，含 4 字节 Vendor-ID、4 字节 VSSN、随机延时值及 GEM 支持标志）。上行序列号请求累计次数达到配置阈值时置位告警标志。
    - 当收到连续 3 次匹配本机 8 字节序列号的 `Assign_ONU-ID`（Msg ID `0x03`）时：
      - 将分配的 8-bit `ONU-ID` 写入 `GTC` 的 `upstr_gtc_onuid` / `downstr_gtc_onuid`。
      - 在 `OCTRLG.tcmap[ONU-ID]` 中建立默认 `Alloc-ID`（等于 `ONU-ID`）到 `T-CONT 0` 的硬件映射。OMCI 使用管理 GEM 通道；PLOAMu 属于物理层突发开销，不是由 T-CONT 承载的 GEM 业务。
@@ -81,8 +81,8 @@ PLOAM 状态机在状态迁移过程中直接读写的 `GTC`（`0x1DC00000`）�
 2. **O4 单播测距与 `EqD` 均衡时延锁定**：
    - 在 O4 态，`GTC` 切换为单授权响应模式（仅响应 `Alloc-ID == ONU-ID` 的测距授权并回送 `Serial_Number_ONU`）。
    - 当收到单次或 3 次一致的 `Ranging_Time`（Msg ID `0x04`）时：
-     - 从 `Data[1..4]` 提取 32-bit 比特级均衡时延 `EqD`，拆分为字节偏移量 `offset = EqD >> 3` 与比特微调余数 `EqD & 0x7`，结合校准修正量 `offset_corr` 直接写入 `GTC` 上行时延寄存器 `upstr_gtc_offset` 及 `PMA` 发送 FIFO 控制寄存器。
-     - 停止 `TO1` 定时器，清零 4 个 BWMAP 边界约定探测计数器 `scheme_cnt[0..3]`，解除 `GTC` 单授权限制并激活 `OCTRLG` 上行状态机，迁入 **O5**。
+     - 从 `Data[1..4]` 提取 32-bit 比特级均衡时延 `EqD`，拆分为字节偏移量 `EqD >> 3` 与比特微调余数 `EqD & 0x7`，结合校准修正量写入 `GTC` 上行时延寄存器及 `PMA` 发送延时控制。
+     - 停止 `TO1` 定时器，清零 4 个 BWMAP 边界约定探测计数器，解除 `GTC` 单授权限制并激活 `OCTRLG` 上行状态机，迁入 **O5**。
    - 若 `TO1` 超时仍未收到 `Ranging_Time`，则清除已分配的 `ONU-ID`（恢复 `0xFF`）并退回 **O2**。
 
 ### 2.3 O5 (Operation State) 运行期协议处理
@@ -93,7 +93,7 @@ PLOAM 状态机在状态迁移过程中直接读写的 `GTC`（`0x1DC00000`）�
 | --- | --- | --- | --- |
 | `Ranging_Time` | `0x04` | 1× / 3× | 在线微调运行期 `EqD`：按有符号或绝对字节偏移直接更新 `upstr_gtc_offset` |
 | `Deactivate_ONU-ID` | `0x05` | 3× | 比较 4 个 BWMAP 边界计数器（`SStart == 0` 与 `SStop == Max` 在开闭区间下的统计值）选定 `bwmap_convention`，复位 `ONU-ID = 0xFF`，关闭上行并返回 **O2** |
-| `Disable_Serial_Number` | `0x06` | 3× | 当 `Data[0] == 0xFF` 且匹配本机 SN 时，关断 `PMA` 激光器与 `GTC` 发送，置位 `emergency_stop_state = 1`，转入 **O7** |
+| `Disable_Serial_Number` | `0x06` | 3× | 当 `Data[0] == 0xFF` 且匹配本机 SN 时，关断 `PMA` 激光器与 `GTC` 发送，保存紧急停止状态，转入 **O7** |
 | `Encrypted_Port-ID` | `0x08` | 3× | 提取 12-bit `Port-ID` 与加密标志，通过 `downstr_gtc_rxpid_addr` / `wr` 更新 `GTC` Port-ID 过滤表的 `ENCRYPT_EN` 位 |
 | `Request_Password` | `0x09` | 1× | 读取 10 字节注册 `Password`，构造 `Password`（Msg ID `0x02`）向 `GTC` PLOAMu 队列连发 3 次 |
 | `Assign_Alloc-ID` | `0x0A` | 3× | 提取 12-bit `Alloc-ID`（`Data[0..1]`）与类型（`Data[2]`），在 `OCTRLG.tcmap[Alloc-ID]` 中使能或解除该 `Alloc-ID` 映射 |

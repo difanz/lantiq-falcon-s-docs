@@ -25,7 +25,7 @@ flowchart TD
 `COP5`（`EXT`）处理单标签、双标签（QinQ）及无标签报文的 VLAN 匹配与头部改写，内部维护三张 64 位宽硬件表：`EXTENDED_VLAN_TABLE`（ID 41）、`VLAN_RULE_TABLE`（ID 42）和 `VLAN_TREATMENT_TABLE`（ID 43），由微码 `IF_VLAN_TRANSLATE`（`PC = 0`–`9`）串联执行：
 
 1. **读取端口描述符 (`EXTENDED_VLAN_TABLE`, ID 41, 128 × 64-bit `VARRAY`)**：
-   - 由端口及 Extended VLAN 配置选择 `EXTENDED_VLAN_TABLE` 索引；不能把未在本地 `gpe_bridge_port_table` 中出现的 `ext_vlan_idx` 当作原 ABI 字段。
+   - 由端口及 Extended VLAN 配置选择 `EXTENDED_VLAN_TABLE` 索引。
    - 微码执行 `searchr 1, 0, 64` 读出该端口允许剥离的最大标签数 `max_tags_to_remove`（`Word 0 [25:24]`）、两套自定义 TPID 值 `inner_tpid_1_value` / `inner_tpid_2_value` 以及规则列表在 `VLAN_RULE_TABLE` 中的起始下标 `rule_table_pointer`（`Word 1 [29:16]`，即 `%data1.48`）。
 2. **自定义协议规则匹配 (`VLAN_RULE_TABLE`, ID 42, 1024 × 64-bit `LIST` / `CUSTOM`)**：
    - 微码将 `rule_table_pointer` 装入 `%index`，执行 `searchr 2, 0, 64`。
@@ -72,7 +72,7 @@ SCE 将 128 条 256-bit ACL 规则槽位分布在 4 个独立的协处理器功�
 
 每个异常模板占 64 位。大端目标的 `gpe_exception_table` 明确把 Word 0 定义为 `egress_exception_flag_mask`，Word 1 为 `ingress_exception_flag_mask`；两者是方向掩码，不能解释为 forward/cpu 两个动作位图。
 
-异常动作另由 `gpe_redirection_table`（表 ID 73）控制：`redirection_queue_index[7:0]` 选择队列（255 表示丢弃），`snooping_enable[8]` 使异常处理之外仍按原数据流复制/转发；另有 `remove_meta_data_header[9]` 与 `no_exception_policer[10]`。必须结合方向掩码、重定向项及端口配置判断镜像、捕获或丢弃，不能通过“两个掩码同时置 1”配置镜像。来源：`bsp/modules/onu/include/drv_onu_gpe_tables.h` 的上述两种结构。
+异常动作另由 `REDIRECTION_TABLE`（表 ID 73）控制：`redirection_queue_index[7:0]` 选择队列（255 表示丢弃），`snooping_enable[8]` 使异常处理之外仍按原数据流复制/转发；另有 `remove_meta_data_header[9]` 与 `no_exception_policer[10]`。必须结合方向掩码、重定向项及端口配置判断镜像、捕获或丢弃，不能通过“两个掩码同时置 1”配置镜像。
 
 被判定为上送 CPU 的报文由 `PE` 赋予对应的异常原因码并路由至 `TMU` 的 CPU 出向端口（`EPN 68..71`）。对于来自 GPON ANI 侧的异常报文，`PE` 在入队前读取 `CONSTANTS_TABLE`（ID 64）Row 13 的桶索引 bits 8:0 与使能 bit 9，调用 `COP14`（`TBM`）实施速率限制。
 
@@ -102,9 +102,3 @@ SCE 将 128 条 256-bit ACL 规则槽位分布在 4 个独立的协处理器功�
 1. 多出口可共享净荷段，并通过 FSQM 引用计数管理生命周期。这里不能直接假设 `MERGE` 将引用计数写成任意 `K`：计数字段只有 3 位，超过范围的扇出策略及不同出口头部的独立分配需从 PE 微码进一步确认。
 2. `MERGE` 依次为位图中的每个目标端口生成独立的出向报文描述符（携带各自的出向 `QID` 与出向 VLAN 改写结果），逐个压入 `TMU`（`0x1D404000`）。
 3. 共享净荷可减少复制，但不同出口的 VLAN 头部可能需要独立段；因此不承诺整个报文始终只有一份段链；每当一个出向控制器（`OCTRLL0`–`OCTRLL3` 或 `OCTRLG`）读完一个 64 字节段并请求释放时，`FSQM` 将该段的引用计数减 1，直至最后一个副本发送完毕（引用计数归零）时才将该段回收至空闲队列。
-
-## 本地依据与适用范围
-
-`bsp/modules/onu/include/drv_onu_gpe_tables.h:gpe_exception_table/gpe_redirection_table`、资源表定义及 `tse*.bin`。组播共享段与独立出口头部的实现细节不由概念图自动证明。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。

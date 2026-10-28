@@ -2,7 +2,7 @@
 
 Falcon 使用 5 个、每组 32 位的 GPIO 编号空间。编号空间不等于封装实际引出的引脚数量；应读取 PADCTRL 的 `AVAIL`，并结合板级连接确认可用性。
 
-本页按原固件对应的 Linux 3.10.49 `drivers/pinctrl/pinctrl-falcon.c`、`drivers/gpio/gpio-falcon.c` 和 dump 设备树核对。GPIO 的输出与中断访问还可在 `kernel.elf` 的 `falcon_gpio_direction_input`（`0x800DCF1C`）、`falcon_gpio_direction_output`（`0x800DCF34`）、`falcon_gpio_set`（`0x800DD7E4`）、`falcon_gpio_irq_type`（`0x800DD180`）核对。下列地址均为物理地址。
+PADCTRL 选择焊盘功能及电气属性，GPIO 控制数字输入、输出与引脚中断。下列地址均为物理地址。
 
 ## 1.1 端口与控制域
 
@@ -14,24 +14,24 @@ Falcon 使用 5 个、每组 32 位的 GPIO 编号空间。编号空间不等于
 | 3 | 96–127 | `0x1E800500` | `0x1E800200` | SYS1 | 21 / 17 | IRQ 47 |
 | 4 | 128–159 | `0x1E800600` | `0x1E800300` | SYS1 | 22 / 18 | IRQ 48 |
 
-PADCTRL 与 GPIO 是两个独立模块，访问前分别激活其时钟。父中断汇总组内请求；Linux GPIO 子中断编号由 irqdomain 创建，不是直接用 `44 + 引脚编号` 计算。
+PADCTRL 与 GPIO 是两个独立模块，访问前分别激活其时钟。父中断汇总组内请求；操作系统可为各引脚分配独立的子中断编号。表中的 IRQ 采用 ICU 输入线性编号约定，不是引脚中断编号。
 
 ## 1.2 PADCTRL 寄存器
 
-| 偏移 | 寄存器 | 已核实的用法 |
+| 偏移 | 寄存器 | 功能 |
 |---|---|---|
 | `4 * p`，`p=0..31` | MUX(p) | 每引脚一个字，复用选择值 0–3 |
 | `0x80` | PUEN | 按位使能上拉 |
 | `0x84` | PDEN | 按位使能下拉 |
 | `0x88` | SRC | 每引脚一位压摆率选择 |
-| `0x8C` | DCC | 每引脚一位驱动强度选择；不是每引脚两位的四档 mA 编码 |
-| `0xF0` | AVAIL | 封装可用引脚位图；不是 `0x9C` |
+| `0x8C` | DCC | 每引脚一位驱动强度选择 |
+| `0xF0` | AVAIL | 封装可用引脚位图 |
 
-旧驱动没有定义 `0x98` 的 PADCTRL 开漏控制寄存器，也未给 DCC 两档对应的具体电流值。本页不为这些地址或电流值补造定义。
+开漏控制的寄存器位置与 DCC 两档对应的具体电流值尚未确认，本表不作规定。
 
-## 1.3 原驱动支持的复用矩阵
+## 1.3 引脚复用矩阵
 
-下表列出 `falcon_mfp[]` 中有依据的条目；`—` 表示该表未提供该功能。选择值 1 为 GPIO。该软件表不是所有封装、所有焊盘的完整硬件复用规格。
+下表列出已明确的复用选择；`—` 表示本表未规定该项。选择值 1 为 GPIO。不同封装的引出范围仍须结合 AVAIL 位图与板级连接判断。
 
 | 全局 GPIO | MUX0 | MUX1 | MUX2 | MUX3 |
 |---|---|---|---|---|
@@ -52,7 +52,7 @@ PADCTRL 与 GPIO 是两个独立模块，访问前分别激活其时钟。父中
 | 64–87 | MII | GPIO | — | — |
 | 88 | PHY | GPIO | — | — |
 
-因此 I2C 组为 GPIO39/40，ASC1 为 GPIO44/45 的 MUX3；不能将 GPIO34/35 写成 I2C，也不能将 GPIO9–12 写成 ASC1。Port 3/4 的完整复用功能不能由地址窗口推导。MA5671A 的具体接线另见[板级引脚映射](../10_ma5671a_board_reference/01_pinmux_and_sfp_mapping.md)。
+I2C 组使用 GPIO39/40 的 MUX0，ASC1 使用 GPIO44/45 的 MUX3。Port 3/4 的完整复用矩阵尚未确认。MA5671A 的具体接线另见[板级引脚映射](../10_ma5671a_board_reference/01_pinmux_and_sfp_mapping.md)。
 
 ## 1.4 GPIO 寄存器与中断
 
@@ -74,7 +74,7 @@ PADCTRL 与 GPIO 是两个独立模块，访问前分别激活其时钟。父中
 
 输出方向切换先通过 OUTSET/OUTCLR 设置电平，再写 DIRSET，避免输出使能后才修改电平。原子置位/清零可避免不同位的读改写丢失；这不等于整个 GPIO 操作序列不需要同步。
 
-| IRNCFG[p] | EXINTCR0[p] | EXINTCR1[p] | 原驱动配置的触发模式 |
+| IRNCFG[p] | EXINTCR0[p] | EXINTCR1[p] | 触发模式 |
 |---|---|---|---|
 | 0 | 0 | 0 | 上升沿 |
 | 0 | 1 | 0 | 下降沿 |
@@ -82,4 +82,4 @@ PADCTRL 与 GPIO 是两个独立模块，访问前分别激活其时钟。父中
 | 1 | 0 | 0 | 高电平 |
 | 1 | 1 | 0 | 低电平 |
 
-`falcon_gpio_irq_type` 同时将目标引脚切为输入。中断处理读取 IRNCR、分派组内已挂起位；屏蔽和应答分别写 IRNENCLR 与 IRNCR。
+配置引脚中断时还应将目标引脚设为输入。中断处理读取 IRNCR、分派组内已挂起位；屏蔽和应答分别写 IRNENCLR 与 IRNCR。

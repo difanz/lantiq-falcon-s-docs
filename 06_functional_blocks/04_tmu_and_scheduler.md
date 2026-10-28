@@ -12,14 +12,14 @@ TMU（Traffic Management Unit）与 TBM（Dual Token Bucket Meter）分别实现
 时钟与复位控制位位于 `SYS_GPE`（`0x1D700000`）：
 
 - `TMU` 位（bit 11，`0x00000800`）：控制 TMU 时钟与模块激活。
-- `COP6` 时钟位实际是 bit 30（`0x40000000`）。资源头把 TBM 的功能路由 ID 定义为 14；尚无证据把它等同于 COP6，不能据该 ID 推导 TBM 的独立时钟位。
+- `COP6` 时钟位实际是 bit 30（`0x40000000`）。TBM 的功能路由 ID 为 14；路由 ID 与时钟控制位属于不同的编号空间，不应互相换算。
 
 TMU 的 72 个出向端口（`EPN 0..71`）与预留调度器块（`SBID 0..127`）分配如下：
 
 - `EPN 0..63`：上行 T-CONT 的常规/抢占出向端口空间（输出至 `OCTRLG`，绑定由 `tctable[]` 配置）
 - `EPN 64..67`：4 个下行 LAN 物理端口（输出至 `OCTRLL0..3`）
 - `EPN 68..71`：4 个虚拟 UNI 端口 `VUNI0..3`（输出至 `OCPU`）
-- `SBID 93 + T-CONT 索引`：驱动为 32 个 T-CONT 预留的调度器块；这里不是任意 `EPN` 加 93
+- `SBID 93 + T-CONT 索引`：一种为 32 个 T-CONT 预留调度器块的配置约定；这里不是任意 `EPN` 加 93
 - `SBID 125`：异常包（Exception）调度器块
 - `SBID 126`：上行 OMCI 调度器块
 
@@ -115,9 +115,3 @@ TBM（Dual Token Bucket Meter）使用资源头中的功能路由 ID 14，在微
 - `1`（`MOD_RFC4115`）：MEF / RFC 4115 双桶监管模式（支持 `CF` 绿牌溢出耦合至黄牌桶）
 - `2`（`MOD_RFC2698_CB`）：RFC 2698 色盲（Color-Blind）trTCM 模式
 - `3`（`MOD_RFC2698_CA`）：RFC 2698 色敏（Color-Aware）trTCM 模式
-
-## 本地依据与适用范围
-
-`bsp/modules/onu/drv_onu_reg_tmu.h`、`drv_onu_reg_tbm.h`、`drv_onu_reg_sys_gpe.h` 与 `include/drv_onu_resource_gpe.h`。
-
-上述 `bsp/` 路径按本次审计的 `linux-3.10.49` 基线读取，属于源码/静态固件证据；不将 `linux-7.3` 移植结果或未上板验证的解释当作原固件运行事实。
