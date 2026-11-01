@@ -76,7 +76,7 @@ flowchart TD
    - `COP0`（`FID`）根据桥接索引与转换后的 VID 查找 `FID_ASSIGNMENT`（ID 1）/ `FID_HASH`（ID 2），确定报文所属的二层转发域 `FID`。
    - `COP1`（`FWD`）以 `FID + SMAC` 检索 `SHORT_FWD_HASH`（ID 9）与 `SHORT_FWD_MAC`（ID 10）。若源 MAC 未命中或入向端口号发生迁移，且当前 Bridge Port 的学习计数器未达上限，硬件将新 `FID + SMAC -> BridgePort` 表项写入 `SHORT_FWD_MAC` 并复位老化时间戳。
 5. **上行 GEM 端口映射 (`COP3` / `COP4`)**：
-   - 根据 Bridge Port 映射模式（802.1p P-Mapper `PMAPPER` 表 ID 66、VID 映射或流分类结果），确定上行目标 `GPIX`（8-bit 内部 GEM 端口索引，`0`–`255`）及对应的 `TMU` 出向队列号 `QID`（`0`–`255`）。`US_GEM_PORT`（ID 33，256 项 × 64-bit）提供上行端口属性；不能把下行 GEM AES 解密配置当作上行加密能力。
+   - 根据 Bridge Port 映射模式（802.1p P-Mapper `PMAPPER` 表 ID 66、VID 映射或流分类结果），确定上行目标 `GPIX`（8-bit 内部 GEM 端口索引，`0`–`255`）及对应的 `TMU` 出向队列号 `QID`（`0`–`255`）。`US_GEM_PORT`（ID 33，256 项 × 64-bit）提供上行端口属性。
 6. **TBM 双桶三色流量监管 (`0x1D600700`)**：
    - 若 Bridge Port、VLAN 或上行 GEM Port 绑定了流量计量器（Meter），`PE` 向硬件 `TBM`（Token Bucket Meter，物理基址 `0x1D600700`）发起计量请求。
    - `TBM` 硬件支持 512 个单桶或 256 对双桶计量器（CIR/CBS 承诺桶与 PIR/PBS 峰值桶），兼容 RFC 2698（trTCM）与 RFC 4115（MEF 色盲/色敏模式）。`TBM` 根据当前桶水位与报文长度即时扣除令牌，返回报文颜色（Green / Yellow / Red）；Red 报文直接标记丢弃或降级，Green/Yellow 颜色随描述符传递至 `MERGE` 与 `TMU`。
@@ -134,7 +134,7 @@ flowchart TD
    - 比较当前报文剩余字节数 `REM_LEN`、单帧上限 `cfg1.GEMPLSIZE` 以及本次 BWMAP 授权窗口剩余可用字节数 `GRANT_REM`：
      - 若净可用空间与 `GEMPLSIZE` 均允许容纳末片（示意条件 `GRANT_REM >= REM_LEN + 5`）：整帧或末分片可在当前授权窗口内发完。硬件构造 5 字节 GEM 头部（`PLI = REM_LEN`，`Port-ID = GPID`，`PTI = 3'b001` 表示末分片，计算 13-bit `HEC`），从 `SSB0` 按 `LLT` 链读出全部剩余数据并向 `FSQM` 归还已读完的 64 字节段。
      - 若 `5 < GRANT_REM < REM_LEN + 5`：当前授权窗口不足以容纳整帧，硬件在任意字节边界执行 GEM 切片，构造非末分片 GEM 头（`PLI = GRANT_REM - 5`，`Port-ID = GPID`，`PTI = 3'b000` 表示后续仍有分片），仅发出 `GRANT_REM - 5` 字节净荷，并保存该端口当前段内字节偏移与剩余长度，留待下次同 T-CONT 授权到达时继续发送。
-     - 队列为空时由空闲模板填充；剩余不足完整头部时如何跨边界处理，不能由上述示意比较推导。FEC、突发开销及硬件预取同样影响真实可用字节数。
+     - 队列为空时由空闲模板填充。FEC、突发开销及硬件预取参与计算可用字节数；头部跨边界的处理细节尚未确认。
 
 ---
 

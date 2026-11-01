@@ -18,11 +18,11 @@ flowchart TD
     PLL -->|固定 100MHz| FPI_CLK["FPI 外设总线时钟 ASC / SSC / I2C /<br/>GPTC"]
     PLL -->|EBUCC.EBUDIV=0 50MHz /<br/>EBUDIV=1 100MHz| EBU_CLK["EBU 与 SFSM 串行闪存时钟"]
     PLL -->|INFRAC.GP 时钟选择与使能| GPE_CLK["GPE 微码集群与协处理器时钟"]
-    PLL -->|SGMIIC / EXTPHYC<br/>25 / 50 / 125 / 250MHz| ETH_CLK["SGMII / GPHY / 外部 PHY<br/>参考时钟"]
+    PLL -->|EXTPHYC<br/>25 / 50 / 125MHz| ETH_CLK["外部 PHY 输出时钟"]
     CPU_CLK ~~~ DDR_CLK ~~~ FPI_CLK ~~~ EBU_CLK ~~~ GPE_CLK ~~~ ETH_CLK
 ```
 
-各时钟域的硬件频率配置寄存器如下：
+各时钟域的频率配置和以太网接口选择寄存器如下：
 
 | 时钟域名称 | 标称频率范围 | 硬件控制寄存器与位域 | 分频与选通规则 |
 | :--- | :--- | :--- | :--- |
@@ -32,15 +32,15 @@ flowchart TD
 | **FPI 外设总线时钟 (`f_FPI`)** | 100 MHz | 内部固定分频 | 作为 `ASC0/1`、`SSC0`、`I2C`、`GPTC` 的输入基准时钟 |
 | **IO 时钟 (`io`)** | 200 MHz | 独立于 FPI 的时钟域 | 为 WDT 提供输入基准，计时参数应使用此频率 |
 | **EBU 总线时钟 (`f_EBU`)** | 50 MHz / 100 MHz | `SYS1_EBUCC`（`0x1EF000C4`）位 `[0]` `EBUDIV` | `0` = 50 MHz；`1` = 100 MHz |
-| **GPE 引擎时钟 (`f_GPE`)** | 实际 MHz 值尚未确认 | `STATUS_CONFIG`（`0x1E802040`）位 `[11:10]` `GPEFREQ`<br>`SYS1_INFRAC`（`0x1EF000BC`）位 `[28:24]` `GP` | `INFRAC` 位 `[25]` 开启 GPE 主时钟源；位 `[27:26]` 为选择字段，启用序列采用 `01`，不由该编码直接推定实际频率 |
-| **SGMII 参考时钟** | 125 MHz / 250 MHz | `SYS_ETH_SGMIIC`（`0x1DB000C4`）位 `[1:0]` `CLKSEL` | `00` = 125 MHz 内部 PLL，`01` = 125 MHz 外部差分引脚，`10` = 250 MHz 内部 PLL，`11` = 250 MHz 外部差分引脚 |
-| **外部 PHY 输出时钟** | 25 / 50 / 125 MHz | `SYS_ETH_EXTPHYC`（`0x1DB000B0`）位 `[3:0]` | 位 `[3]` `CLKOEN` 使能引脚输出；位 `[2:0]` `CLKSEL`：`001`=25 MHz，`010`=50 MHz，`101`=125 MHz |
+| **GPE 引擎时钟 (`f_GPE`)** | 实际 MHz 值尚未确认 | `STATUS_CONFIG`（`0x1E802040`）位 `[11:10]` `GPEFREQ`<br>`SYS1_INFRAC`（`0x1EF000BC`）位 `[28:24]` `GP` | `INFRAC` 位 `[25]` 开启 GPE 主时钟源；位 `[27:26]` 为选择字段，启用序列采用 `01` |
+| **串行自协商模式** | TBX / SGMII，MAC / PHY | `SYS_ETH_SGMIIC`（`0x1DB000C4`）位 `[1]` `ANP`、位 `[0]` `ANMP` | `ANP`：`0` = TBX（Clause 37）、`1` = SGMII；`ANMP`：`0` = MAC、`1` = PHY |
+| **外部 PHY 输出时钟** | 25 / 50 / 125 MHz | `SYS_ETH_EXTPHYC`（`0x1DB000B0`）位 `[31]` `CLKEN`、位 `[2:0]` `CLKSEL` | `CLKEN=1` 使能输出；`CLKSEL`：`1` = 25 MHz、`2` = 125 MHz、`5` = 50 MHz |
 
 ---
 
 ## 3.2 三域时钟门控、模块激活与软复位位图
 
-GPE 主时钟启用前，先检查 `INFRAC[25]`；已使能时保持当前配置。未使能时，按 `(INFRAC & 0xF1FFFFFF) | 0x04000000` 写入选择字段，等待约 1 µs，再置位 `0x02000000`，随后再等待约 1 µs。该顺序规定选择与使能的先后关系，不代表对实际振荡频率的测量。
+GPE 主时钟启用前，先检查 `INFRAC[25]`；已使能时保持当前配置。未使能时，按 `(INFRAC & 0xF1FFFFFF) | 0x04000000` 写入选择字段，等待约 1 µs，再置位 `0x02000000`，随后再等待约 1 µs。
 
 每个控制域（`SYS1`、`SYS_ETH`、`SYS_GPE`）均通过统一的 32 位位图控制所属外设模块的时钟门控（`CLKS` `+0x00` / `CLKEN` `+0x04` / `CLKCLR` `+0x08`）、复位释放与激活（`ACTS` `+0x20` / `ACT` `+0x24` / `DEACT` `+0x28`）以及单次硬件复位脉冲（`RBT` `+0x2C`）。
 

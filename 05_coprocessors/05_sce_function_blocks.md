@@ -25,7 +25,7 @@ SCE 将全部硬件表统一编址在 7 位全局表编号（`Global Table ID`�
 
 | 硬件功能块域 | 全局表 ID 范围 | 硬件译码公式 | 物理存储介质与访问总线 |
 | --- | --- | --- | --- |
-| **COP 协处理器功能块** | `0`–`63` | `COP_ID = Global_ID >> 3`<br/>`Table_ID = Global_ID & 0x7` | 位于 `COP0`–`COP5` 各自的专用表 SRAM；不能假定每个 COP 都只有 8 KiB（例如本页 COP1 表池已超过此大小）。通过 `LINK` 总线发送 `LINKC1` 命令帧访问；`Table_ID = 0` 固定映射为该 COP 的内部控制寄存器空间（`TABLE10`–`TABLE72`、`GLOBAL`、`CRAM`、`CUSTOM0`–`CUSTOM7`） |
+| **COP 协处理器功能块** | `0`–`63` | `COP_ID = Global_ID >> 3`<br/>`Table_ID = Global_ID & 0x7` | 位于 `COP0`–`COP5` 各自的专用表 SRAM，表池容量按各 COP 的配置分配。通过 `LINK` 总线发送 `LINKC1` 命令帧访问；`Table_ID = 0` 固定映射为该 COP 的内部控制寄存器空间（`TABLE10`–`TABLE72`、`GLOBAL`、`CRAM`、`CUSTOM0`–`CUSTOM7`） |
 | **PE 局部表功能块** | `64`–`79` | `PE_Table_ID = Global_ID - 64` | 镜像存储在 `PE0`–`PE5` 各自的片上 Data RAM 中。报文处理期间由 PE 硬件线程直接寻址读取；主控配置时通过 `PE` 的 `HOST[1]`–`HOST[9]` 邮箱寄存器配合 `PCTRL.ISIG` 信号广播写入全部 6 颗 PE |
 
 8 个 SCE 硬件功能块的职责划分与资源汇总如下：
@@ -444,7 +444,7 @@ PE 线程向 `COP5` 发起 `IF_VLAN_TRANSLATE`（入口 `PC = 0`）调用时，�
 
 ## 8. 跨功能块协同：4-Lane 并行 ACL 搜索架构
 
-固件在四个 COP 中各配置 128 项、256-bit 的 ACL 表视图，形成 4 条查找通道；并非把总计 128 项简单均分为每通道 32 项。PE 如何组合通道结果及哪些项用于掩码，还需逐条微码确认。各通道（Lane 0–Lane 3），分布在 4 个独立的 COP 功能块中：
+下列 ACL 配置示例在四个 COP 中各分配 128 项、256-bit 表视图，形成四条查找通道（Lane 0–Lane 3）：
 
 | ACL 通道号 | 承载的功能块与协处理器 | 通用表 ID (`MODE = GENERIC`) | 三态表 ID (`MODE = TERNARY`) | 物理表号 | 表 SRAM 基址 (`BASE`) | 微码导出函数名与入口 PC |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -490,7 +490,7 @@ PE 线程向 `COP5` 发起 `IF_VLAN_TRANSLATE`（入口 `PC = 0`）调用时，�
 
 ### 10.1 主控与 PE 局部表的 `HOST` 邮箱访问协议
 
-主控 CPU 读写全局表 ID `64`–`79` 时不经过 `LINK` 总线，而是通过每颗 PE 寄存器窗口中的 `HOST[0]`–`HOST[9]` 邮箱寄存器与该 PE 的 `Thread 0`（`VMx0`）交互：
+主控 CPU 通过每颗 PE 寄存器窗口中的 `HOST[0]`–`HOST[9]` 邮箱寄存器与该 PE 的 `Thread 0`（`VMx0`）交互，读写全局表 ID `64`–`79`：
 
 1. **写入数据寄存器（仅写操作）**：将待写入的 `1`–`8` 个 32 位字依次写入目标 PE 的 `HOST[2]`–`HOST[9]`。对于宽度小于 32 位的表（8 位或 16 位表项），先执行一次 32 位读-修改-写以保持同字内相邻表项不变。
 2. **写入命令寄存器 `HOST[1]`**：向目标 PE 的 `HOST[1]` 写入邮箱命令字（位域如下表）。
@@ -561,6 +561,6 @@ PE 线程向 `COP5` 发起 `IF_VLAN_TRANSLATE`（入口 `PC = 0`）调用时，�
 
 #### （3）`EXCEPTION_TABLE`（全局表 ID 78，64-bit / 2 字）
 
-每个异常模板占 64 位。大端目标的 `gpe_exception_table` 明确把 Word 0 定义为 `egress_exception_flag_mask`，Word 1 为 `ingress_exception_flag_mask`；两者是方向掩码，不能解释为 forward/cpu 两个动作位图。
+每个异常模板占 64 位。Word 0 为出向异常标志掩码（`egress_exception_flag_mask`），Word 1 为入向异常标志掩码（`ingress_exception_flag_mask`）。
 
-异常动作另由 `REDIRECTION_TABLE`（表 ID 73）控制：`redirection_queue_index[7:0]` 选择队列（255 表示丢弃），`snooping_enable[8]` 使异常处理之外仍按原数据流复制/转发；另有 `remove_meta_data_header[9]` 与 `no_exception_policer[10]`。必须结合方向掩码、重定向项及端口配置判断镜像、捕获或丢弃，不能通过“两个掩码同时置 1”配置镜像。
+异常动作另由 `REDIRECTION_TABLE`（表 ID 73）控制：`redirection_queue_index[7:0]` 选择队列（255 表示丢弃），`snooping_enable[8]` 使异常处理之外仍按原数据流复制/转发；另有 `remove_meta_data_header[9]` 与 `no_exception_policer[10]`。方向掩码、重定向表项及端口配置共同选择镜像、捕获或丢弃动作。

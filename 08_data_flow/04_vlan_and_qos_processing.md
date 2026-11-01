@@ -70,9 +70,9 @@ SCE 将 128 条 256-bit ACL 规则槽位分布在 4 个独立的协处理器功�
 
 ### 3.3 协议捕获与异常报文上送 (`EXCEPTION_TABLE`, ID 78)
 
-每个异常模板占 64 位。大端目标的 `gpe_exception_table` 明确把 Word 0 定义为 `egress_exception_flag_mask`，Word 1 为 `ingress_exception_flag_mask`；两者是方向掩码，不能解释为 forward/cpu 两个动作位图。
+每个异常模板占 64 位：Word 0 为出向异常掩码 `egress_exception_flag_mask`，Word 1 为入向异常掩码 `ingress_exception_flag_mask`。
 
-异常动作另由 `REDIRECTION_TABLE`（表 ID 73）控制：`redirection_queue_index[7:0]` 选择队列（255 表示丢弃），`snooping_enable[8]` 使异常处理之外仍按原数据流复制/转发；另有 `remove_meta_data_header[9]` 与 `no_exception_policer[10]`。必须结合方向掩码、重定向项及端口配置判断镜像、捕获或丢弃，不能通过“两个掩码同时置 1”配置镜像。
+异常动作由 `REDIRECTION_TABLE`（表 ID 73）控制：`redirection_queue_index[7:0]` 选择队列（255 表示丢弃），`snooping_enable[8]` 使异常处理之外仍按原数据流复制/转发；另有 `remove_meta_data_header[9]` 与 `no_exception_policer[10]`。方向掩码选择异常，重定向项及端口配置共同决定镜像、捕获或丢弃动作。
 
 被判定为上送 CPU 的报文由 `PE` 赋予对应的异常原因码并路由至 `TMU` 的 CPU 出向端口（`EPN 68..71`）。对于来自 GPON ANI 侧的异常报文，`PE` 在入队前读取 `CONSTANTS_TABLE`（ID 64）Row 13 的桶索引 bits 8:0 与使能 bit 9，调用 `COP14`（`TBM`）实施速率限制。
 
@@ -99,6 +99,6 @@ SCE 将 128 条 256-bit ACL 规则槽位分布在 4 个独立的协处理器功�
 ### 4.4 `MERGE` 与 `FSQM` 硬件零拷贝扇出 (`0x1D600600` / `0x1D500000`)
 
 当组播或泛洪报文经过 `COP1`/`COP4` 及 `COP2` 出向过滤后，得出包含 `K`（`K >= 1`）个有效出向端口的位图：
-1. 多出口可共享净荷段，并通过 FSQM 引用计数管理生命周期。这里不能直接假设 `MERGE` 将引用计数写成任意 `K`：计数字段只有 3 位，超过范围的扇出策略及不同出口头部的独立分配需从 PE 微码进一步确认。
+1. 多出口可共享净荷段，并通过 FSQM 的 3 位引用计数字段管理生命周期。超出该计数范围的扇出处理及不同出口头部的独立分配流程尚未确认。
 2. `MERGE` 依次为位图中的每个目标端口生成独立的出向报文描述符（携带各自的出向 `QID` 与出向 VLAN 改写结果），逐个压入 `TMU`（`0x1D404000`）。
 3. 共享净荷可减少复制，但不同出口的 VLAN 头部可能需要独立段；因此不承诺整个报文始终只有一份段链；每当一个出向控制器（`OCTRLL0`–`OCTRLL3` 或 `OCTRLG`）读完一个 64 字节段并请求释放时，`FSQM` 将该段的引用计数减 1，直至最后一个副本发送完毕（引用计数归零）时才将该段回收至空闲队列。

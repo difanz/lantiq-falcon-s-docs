@@ -25,7 +25,7 @@ GPE 将全部硬件表统一编址在 7-bit 全局 `Table ID`（`0`–`79`）空
 
 | 存储域 | 全局 Table ID 范围 | 硬件寻址译码 | 物理位置与访问机制 |
 | --- | --- | --- | --- |
-| **COP 协处理器表** | `0`–`63` | `cop_id = id >> 3`<br/>`tbl_id = id & 0x7` | 位于 `COP0`–`COP5` 专用表 SRAM（各功能块容量不能由单一 8 KiB 假设推断）。通过 `LINK0`（PE 线程）或 `LINK1`/`LINK2`（主控）发送 `LINKC1` 原语（`READ`、`WRITE`、`ADD`、`REMOVE`、`SEARCH`、`SEARCHR`、`SEARCHW`、`COUNT`、`EXEC`）访问 |
+| **COP 协处理器表** | `0`–`63` | `cop_id = id >> 3`<br/>`tbl_id = id & 0x7` | 位于 `COP0`–`COP5` 专用表 SRAM，容量按各功能块分别配置。通过 `LINK0`（PE 线程）或 `LINK1`/`LINK2`（主控）发送 `LINKC1` 原语（`READ`、`WRITE`、`ADD`、`REMOVE`、`SEARCH`、`SEARCHR`、`SEARCHW`、`COUNT`、`EXEC`）访问 |
 | **PE 本地镜像表** | `64`–`79` | `pe_tbl_idx = id - 64` | 位于 `PE0`–`PE5` 的 12 KiB 本地数据 RAM。转发线程直接读取；主控通过 `HOST[1]`–`HOST[9]` 邮箱寄存器配合 `PCTRL.ISIG` 信号以 `pe_mask = 0x3F` 广播写入全部 6 颗 `PE` |
 
 ### 1.1 数据通路转发查表总览

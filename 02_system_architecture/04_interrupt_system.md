@@ -19,7 +19,7 @@ flowchart TD
 | IP2–IP6 | 2–6 | IM0–IM4 级联输入 |
 | IP7 | 7 | CP0 Count/Compare 定时器中断 |
 
-软件中断可用于处理单元间通知，具体分配由系统规定。SFP 设备服务通过共享内存交换 EEPROM 数据，其协议另见[多线程与 VPE1](../03_cpu_subsystems/02_vpe1_sfp_i2c.md)。
+软件中断可用于处理单元间通知；VPE 的共享内存与线程配置见[多线程与 VPE1](../03_cpu_subsystems/02_vpe1_sfp_i2c.md)。
 
 ## 4.2 ICU 寄存器组
 
@@ -45,7 +45,7 @@ flowchart TD
 
 ## 4.3 外设中断输入映射
 
-下表列出已明确的 ICU 输入；其余输入的分配不在本表规定范围内。线性编号采用前述 `8 + 32 * k + b` 约定。
+ICU 输入分配如下。线性编号采用前述 `8 + 32 * k + b` 约定。
 
 | ICU 组/位 | 中断源 | 线性编号 |
 |---|---|---|
@@ -63,8 +63,8 @@ flowchart TD
 | IM3/8–10 | ASC1 TX、RX、Error | 112、113、114 |
 | IM4/18–19 | MPS 两条中断输入 | 154、155 |
 
-中断接线与使能状态相互独立。外置光模块的信号检测等 GPIO 事件还取决于板级引脚分配，并先经过 GPIO 组内中断逻辑。GPTC 各通道的 ICU 接线尚未确认，本表不为其分配编号。
+GPIO 引脚事件先由组内中断逻辑捕获，再汇总到 GPIO0–4 对应的 ICU 输入。GPTC 各通道的 ICU 接线未确认。
 
 ## 4.4 外设内部的中断源
 
-多种外设有 IRNCR（捕获/应答）、IRNICR（注入控制）和 IRNEN（使能）一类寄存器，但偏移、读写属性、屏蔽与锁存关系须按具体模块核对。不能将一套通称强行套用到 I2C、GPIO、GTC 或其他全部模块。例如 GPIO 的中断模式由 IRNCFG 选择，IRNENSET/CLR 提供原子使能控制，详见[GPIO 寄存器表](../04_peripherals_and_io/01_pinctrl_and_gpio.md)。
+IRNCR 用于捕获或应答中断，IRNICR 用于中断注入，IRNEN 用于使能。各模块的偏移与读写属性见对应寄存器表。GPIO 的中断模式由 IRNCFG 选择，IRNENSET/CLR 提供原子使能控制，详见[GPIO 寄存器表](../04_peripherals_and_io/01_pinctrl_and_gpio.md)。

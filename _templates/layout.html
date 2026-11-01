@@ -1,0 +1,5 @@
+{% extends "!layout.html" %}
+{% block content %}
+{% set article = '<article class="md-content__inner md-typeset" role="main"' %}
+{{ super() | replace(article, article ~ ' id="' ~ (pagename | e) ~ '" tabindex="-1"') }}
+{% endblock %}

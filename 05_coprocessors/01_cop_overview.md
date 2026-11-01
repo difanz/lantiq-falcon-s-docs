@@ -5,7 +5,7 @@ Lantiq Falcon（PEB/PEF 98035）片上包含四套独立执行域。GPON 数据�
 | 执行域 | 处理器核心 / 指令集 | 代码存储位置 | 硬件职责 |
 | --- | --- | --- | --- |
 | VPE0 | MIPS 34Kc VPE0（大端 MIPS32r2） | 外部 DDR（`0x80002000`） | 主控操作系统、控制面协议栈与硬件配置管理 |
-| VPE1 | MIPS 34Kc VPE1（大端 MIPS32r2 + MT ASE） | 独立保留内存窗口（`sfp_i2c_vpe.bin`） | SFP 金手指侧 I2C 从机（A0h/A2h EEPROM）实时响应 |
+| VPE1 | MIPS 34Kc VPE1（大端 MIPS32r2 + MT ASE） | DDR 或片上 SRAM | 独立程序执行、外设中断处理与跨 VPE 数据交换 |
 | SCE (GPE) | 6 颗 64 位 PE + 8 个 16 位 COP | PE 内部代码 RAM（`falcon_gpe_fw.bin`）、COP 内部 CRAM（`tse0.bin`–`tse5.bin`） | GPON 与以太网数据面报文解析、分类、表查找与转发修改 |
 | GPHY0 / GPHY1 | 2 颗片上 MCS-51 (8051) | SBS0 RAM（`0x1F204000`，`phy11g.bin`）或片上 ROM | 双路千兆以太网 PHY 链路自协商、物理层训练与内部寄存器控制 |
 
@@ -53,7 +53,7 @@ GPE 全部硬件模块挂载在 SBS2 系统总线（物理地址 `0x1D000000`–
 
 ## 3. GPE 核心时钟使能
 
-GPE 主时钟由 `SYS1`（物理基址 `0x1EF00000`）的 `INFRAC`（偏移 `0xBC`）控制。以下为时钟使能序列；单个 COP 的指令吞吐率不能直接由此推导。
+GPE 主时钟由 `SYS1`（物理基址 `0x1EF00000`）的 `INFRAC`（偏移 `0xBC`）控制。时钟使能序列如下。
 
 1. 读取 `SYS1_INFRAC`（`0x1EF000BC`）的 bit 25；若已为 1，表明 GPE 核心时钟已处于开启状态。
 2. 若 bit 25 为 0，先读取芯片状态块偏移 `0x40`（物理地址 `0x1E802040`，`CHIPCONF`），此处不解释该状态字的熔丝字段。

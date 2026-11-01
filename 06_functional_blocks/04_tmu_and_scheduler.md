@@ -19,7 +19,7 @@ TMU 的 72 个出向端口（`EPN 0..71`）与预留调度器块（`SBID 0..127`
 - `EPN 0..63`：上行 T-CONT 的常规/抢占出向端口空间（输出至 `OCTRLG`，绑定由 `tctable[]` 配置）
 - `EPN 64..67`：4 个下行 LAN 物理端口（输出至 `OCTRLL0..3`）
 - `EPN 68..71`：4 个虚拟 UNI 端口 `VUNI0..3`（输出至 `OCPU`）
-- `SBID 93 + T-CONT 索引`：一种为 32 个 T-CONT 预留调度器块的配置约定；这里不是任意 `EPN` 加 93
+- `SBID 93 + T-CONT 索引`：为 32 个 T-CONT 预留调度器块的配置示例
 - `SBID 125`：异常包（Exception）调度器块
 - `SBID 126`：上行 OMCI 调度器块
 

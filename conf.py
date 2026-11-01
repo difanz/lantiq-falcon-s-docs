@@ -59,6 +59,7 @@ html_sidebars = {
 }
 
 html_static_path = ['_static']
+templates_path = ['_templates']
 html_css_files = ['falcon.css']
 html_js_files = [('diagrams.js', {'defer': 'defer'})]
 autosectionlabel_prefix_document = True

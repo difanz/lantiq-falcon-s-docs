@@ -6,4 +6,5 @@
 01_pinmux_and_sfp_mapping
 02_dts_and_board_config
 03_board_tuning_and_env
+04_vpe1_and_sfp_services
 ```

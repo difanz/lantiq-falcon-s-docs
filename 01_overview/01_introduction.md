@@ -14,16 +14,14 @@ Falcon 家族包含多个封装与外设裁剪变体，通过片上 `STATUS` 模
   * `MANID`（位 `[11:1]`）：11 位 JEDEC 制造商标识（`0x041`，Infineon / Lantiq）。
   * `CONST1`（位 `[0]`）：恒定为 `1`。
 * **熔丝配置寄存器 `STATUS_FUSE0`（`0x1E802038`）**：
-  * `F0`（位 `[29:26]`）：4 位设备封装与功能变体字段（Device Type），硬件通过生产阶段烧录的 eFuse 区分以下四类子型号：
+  * `F0`（位 `[29:26]`）：4 位型号标识字段（Device Type），由生产阶段烧录的 eFuse 编码：
 
-| `FUSE0.F0` (`[29:26]`) | 芯片子型号标识 | 目标产品形态 | 关键外设配置特征 |
-| :--- | :--- | :--- | :--- |
-| `0` (`0000b`) | **Falcon-D** | 型号标识 | 具体封装与外设引出不能仅由该名称判定 |
-| `1` (`0001b`) | **Falcon-V** | 型号标识 | 同上 |
-| `2` (`0010b`) | **Falcon-M** | 型号标识 | 同上 |
-| 其余值 | 未规定 | 型号对应关系尚未确认 | 不由该值推定封装或外设裁剪配置 |
-
-MA5671A 采用 SFP 产品形态；产品形态与熔丝型号编码是两个维度，不能由 SFP 外形直接推定 `FUSE0.F0` 的值。
+| `FUSE0.F0` (`[29:26]`) | 芯片子型号标识 |
+| :--- | :--- |
+| `0` (`0000b`) | **Falcon-D** |
+| `1` (`0001b`) | **Falcon-V** |
+| `2` (`0010b`) | **Falcon-M** |
+| 其余值 | 未规定 |
 
 * **硬件配置与子版本寄存器 `STATUS_CONFIG`（`0x1E802040`）**：
   * `SUBVERS`（位 `[25:22]`）：4 位硅片步进子版本（`0` = `Av1`，`1` = `Av2`，`2` = `Av3`，`3` = `Av4`，`4` = `Bv1`）。当位 `[24]`（即 `SUBVERS & 4`）置位时代表 B 系列硅片步进（如 `B11`、`B12`），未置位时代表 A 系列硅片步进（如 `A11`、`A12`）。
@@ -90,20 +88,20 @@ flowchart TD
 ### 1. 主控与多线程处理器域（MIPS 34Kc MT）
 * 采用主频 400 MHz（支持分频至 200 MHz）的大端序（Big-Endian）MIPS32 Release 2 **34Kc** 核心，支持 MIPS16e 代码压缩扩展、DSP ASE 及多线程扩展（MT ASE）。
 * 单一物理核心提供 2 个硬件虚拟处理单元（**VPE0** 与 **VPE1**）和最多 5 个硬件线程上下文（**TC0–TC4**），共享 32 KiB 4 路组相联指令缓存（I-Cache）与 16 KiB 4 路组相联写回式数据缓存（D-Cache）。
-* **VPE0** 执行主控协议栈（如 OMCI 管理控制面、GPE 表项维护与光链路校准任务）；**VPE1** 可绑定专用硬件线程（TC1）运行裸机固件，处理 SFP 双地址 I2C 从机事务。两个 VPE 共享物理流水线、缓存与总线，不能据硬件线程隔离宣称固定纳秒级响应或完全不受缓存、内存竞争影响。
+* **VPE0** 执行主控协议栈（如 OMCI 管理控制面、GPE 表项维护与光链路校准任务）；**VPE1** 可绑定专用硬件线程（TC1）运行裸机固件。两个 VPE 共享物理流水线、缓存与总线，访存和调度延迟受共享资源竞争影响。
 
 ### 2. GPON 传输汇聚与线速封包处理域（GTC + GPE + TMU + FSQM）
-* **GTC（GPON Transmission Convergence，`0x1DC00000`）**：硬件实现下行 2.48832 Gbps 帧同步、PLOAMd 提取、AES 解密、FEC 与 GEM 帧定界；GEM 头 HEC 的纠错不能混称为 GPON 载荷 BCH FEC。上行 1.24416 Gbps 路径涉及带宽授权、突发时序、PLOAMu/DBRu 插入与 GEM 封装，详见 GTC 章节。
+* **GTC（GPON Transmission Convergence，`0x1DC00000`）**：硬件实现下行 2.48832 Gbps 帧同步、PLOAMd 提取、AES 解密、FEC 与 GEM 帧定界。上行 1.24416 Gbps 路径涉及带宽授权、突发时序、PLOAMu/DBRu 插入与 GEM 封装，详见 GTC 章节。
 * **GPE（GPON Packet Engine）**：由输入控制单元（`ICTRLG` / `ICTRLL0–3` / `ICTRLC0–1`）、输入队列管理器（`IQM`）、分配器（`DISP`）、6 颗对称可编程微码引擎（`PE0–PE5`，每核独立 16 KiB 指令 RAM 与 12 KiB 数据 RAM）、8 个硬件表项协处理器（`COP0–COP7`，负责 L2/L3/VLAN/组播查找与计量染色）、合并器（`MERGE`）、流量管理单元（`TMU`）与输出控制单元（`OCTRLG` / `OCTRLL0–3` / `OCTRLC`）组成，提供全线速桥接、VLAN 转换、QoS 优先级映射与流量整形能力。
 * **FSQM（Free Segment Queue Manager，`0x1D500000`）**：管理片上共享封包缓冲区（Packet Buffer RAM），将帧载荷切分为固定长度的逻辑段（Segment，由逻辑段地址 LSA 索引），通过硬件空闲段链表（IFSQ / OFSQ）实现零拷贝帧缓冲分配与回收。
 
 ### 3. 以太网交换与主机接口域（EIM + SGMII + GPHY）
 * **EIM（Ethernet Interface Module，`0x1D800000`）**：包含 4 个千兆以太网 MAC 通道（`GMAC0`–`GMAC3`）与统一 MDIO 主控制器（支持 IEEE 802.3 Clause 22 与 Clause 45 寄存器访问）。
-* **SGMII / SXGMII PCS（`0x1D808800` / `0x1D808C00`）**：提供串行千兆媒质独立接口，支持 1000BASE-X、标准 SGMII（10/100/1000 Mbps 自协商）以及 2.5 Gbps 超频 SGMII（Turbo SGMII / HiSGMII）模式，在 SFP 光模块形态下直接连接外部交换机或路由器主机端口。
+* **SXGMII PCS（`0x1D808800`）与 SGMII PMA（`0x1D808C00`）**：提供串行千兆媒质独立接口，支持 1000BASE-X、标准 SGMII（10/100/1000 Mbps 自协商）以及 2.5 Gbps 超频 SGMII（Turbo SGMII / HiSGMII）模式，在 SFP 光模块形态下直接连接外部交换机或路由器主机端口。
 * **内置双路 GPHY（GPHY0 / GPHY1）**：片上集成两套支持 10/100/1000BASE-T（11G）或双速百兆（22F）的以太网物理层收发器，其内部 8051 协处理器通过 `SBS0CTRL`（`0x1F080000`）重映射机制从片上 `SBS0RAM` 加载控制固件。
 
 ### 4. 光电前端与片上电源域（Optic PMA + DCDC）
-* **光电前端（Optic Subsystem）**：包含 BOSA 激光器偏置/调制电流 DAC、MPD 监测与自动功率控制、GPADC 测量及 Rogue ONU 检测。测量模块的结果寄存器宽度不应直接当作 ADC 模拟有效分辨率，通道与寄存器详见 ADC/DAC 章节。
+* **光电前端（Optic Subsystem）**：包含 BOSA 激光器偏置/调制电流 DAC、MPD 监测与自动功率控制、GPADC 测量及 Rogue ONU 检测。测量结果保存在 MM 的结果寄存器中，通道与寄存器详见 ADC/DAC 章节。
 * **三路数字 DC/DC 转换器**：芯片内置 3 个独立时钟门控与 PWM 环路控制的数字 DC/DC 控制器：
   * `DCDC1V0`：生成芯片数字核心 1.0 V 供电电压。
   * `DCDCDDR`：生成 DDR2 SDRAM 接口供电电压。

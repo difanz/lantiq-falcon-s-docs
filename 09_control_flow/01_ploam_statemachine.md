@@ -1,6 +1,6 @@
 # 9.1 PLOAM 状态机
 
-本页说明激活状态、管理消息和硬件控制的关系。O5 表示 PLOAM 激活成功，不能单独证明 OMCI 业务配置、UNI 链路或数据转发成功。
+PLOAM 状态机控制 GPON 激活过程。进入 O5 后，ONU 按 OLT 分配的上行带宽和授权参数传输业务帧。
 
 `GTC`（物理基址 `0x1DC00000`）与 `PMA`（物理基址 `0x1DD00000`）协同实现 ITU-T G.984.3 定义的 GPON 物理层操作管理维护（PLOAM）通道及 O1–O7 激活状态机。硬件负责下行 13 字节 PLOAMd 帧的 CRC-8 校验、`ONU-ID` 过滤、上行 PLOAMu 突发插入、序列号请求随机延时退避以及均衡时延（`EqD`）字/比特级定时控制；状态机逻辑消费 `GTC` 接收 FIFO 与物理层告警中断（`LOS`、`LOF`），驱动从初始同步（O1）到正常工作态（O5）的寄存器重配置。
 
@@ -42,7 +42,7 @@ PLOAM 状态机在状态迁移过程中直接读写的 `GTC`（`0x1DC00000`）�
 
 | 模块与偏移 | 寄存器名称 | 状态机操作时机与硬件功能 |
 | --- | --- | --- |
-| `GTC + 0x70` | `downstr_gtc_dsistat_1` | 下行中断状态；`GTC + 0x00` 为 `downstr_gtc_dsstat_1`，不是中断状态寄存器 |
+| `GTC + 0x70` | `downstr_gtc_dsistat_1` | 下行中断状态 |
 | `GTC + 0x34` | `downstr_gtc_scon` | 下行同步状态机控制 |
 | `GTC + 0x3C` | `downstr_gtc_sfcnt` | 下行超帧计数器，用于核对 `Key_Switching_Time` |
 | `GTC + 0x40`–`0x4C` | `downstr_aes_dekey[0..3]` | 128-bit AES 下行解密密钥寄存器（按 `Key[3]`..`Key[0]` 字序写入影子密钥缓冲区） |
@@ -76,7 +76,7 @@ PLOAM 状态机在状态迁移过程中直接读写的 `GTC`（`0x1DC00000`）�
    - 每当 BWMAP 中出现针对序列号发现的授权且通过 `SN_Mask` 掩码过滤时，`GTC` 在随机退避延时后自动触发突发发送，上报 `Serial_Number_ONU`（Msg ID `0x01`，含 4 字节 Vendor-ID、4 字节 VSSN、随机延时值及 GEM 支持标志）。上行序列号请求累计次数达到配置阈值时置位告警标志。
    - 当收到连续 3 次匹配本机 8 字节序列号的 `Assign_ONU-ID`（Msg ID `0x03`）时：
      - 将分配的 8-bit `ONU-ID` 写入 `GTC` 的 `upstr_gtc_onuid` / `downstr_gtc_onuid`。
-     - 在 `OCTRLG.tcmap[ONU-ID]` 中建立默认 `Alloc-ID`（等于 `ONU-ID`）到 `T-CONT 0` 的硬件映射。OMCI 使用管理 GEM 通道；PLOAMu 属于物理层突发开销，不是由 T-CONT 承载的 GEM 业务。
+     - 在 `OCTRLG.tcmap[ONU-ID]` 中建立默认 `Alloc-ID`（等于 `ONU-ID`）到 `T-CONT 0` 的硬件映射。OMCI 使用管理 GEM 通道；PLOAMu 位于物理层突发开销区。
      - 关闭 `GTC` 的序列号随机退避延时，启动测距超时定时器 `TO1`（缺省 10 s），迁入 **O4**。
 2. **O4 单播测距与 `EqD` 均衡时延锁定**：
    - 在 O4 态，`GTC` 切换为单授权响应模式（仅响应 `Alloc-ID == ONU-ID` 的测距授权并回送 `Serial_Number_ONU`）。

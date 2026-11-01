@@ -8,4 +8,5 @@
 03_laser_calibration
 04_ethernet_mac_and_serdes
 05_gphy_dual_gigabit
+06_ethernet_control
 ```
