@@ -47,8 +47,8 @@ flowchart TD
     end
 
     subgraph GPON_DOMAIN["GPON 与封包交换加速域 (SBS2)"]
-        GTC["GTC 传输汇聚层引擎 2.488G下行 / 1.244G上行"]
-        GPE["GPE 6核微码引擎 PE0-PE5 与硬件协处理器 COP0-COP7"]
+        GTC["GTC 传输汇聚层引擎 2.488G下行 /<br/>1.244G上行"]
+        GPE["GPE 6核微码引擎 PE0-PE5<br/>与硬件协处理器 COP0-COP7"]
         FSQM_TMU["FSQM 缓冲区管理与 TMU 队列调度引擎"]
         GTC <--> GPE
         GPE <--> FSQM_TMU
@@ -56,25 +56,29 @@ flowchart TD
 
     subgraph ETH_DOMAIN["以太网与主机接口域 (SBS2 / SBS0)"]
         EIM["EIM 以太网接口模块 GMAC0-GMAC3"]
-        SGMII["SGMII / SXGMII 高速串行主机接口 1G / 2.5G"]
+        SGMII["SGMII / SXGMII 高速串行主机接口 1G /<br/>2.5G"]
         GPHY["双路内置 GPHY 11G/22F 协处理器"]
         EIM <--> SGMII
         EIM <--> GPHY
     end
 
     subgraph OPTIC_DOMAIN["光电驱动与电源管理域"]
+        direction TB
         PMA["GPON PMA / BOSA 激光调制与突发控制"]
         MPD["双路 DAC/ADC 光功率监控与 RSSI 测量"]
-        DCDC["三路数控 DC/DC 1V0核心 / DDR / APD高压偏置"]
+        DCDC["三路数控 DC/DC 1V0核心 / DDR /<br/>APD高压偏置"]
     end
 
-    subgraph PERIPH_DOMAIN["低速外设与存储接口域 (FPI / EBU / BIU)"]
+    subgraph PERIPH_DOMAIN["低速外设与存储接口域 (FPI / EBU /<br/>BIU)"]
         EBU["EBU 串行 Flash 控制器 SFSM"]
-        FPI_PERIPH["ASC0/1 串口 / I2C 控制器 / SSC0 SPI / GPTC 定时器"]
+        FPI_PERIPH["ASC0/1 串口 / I2C 控制器 / SSC0 SPI<br/>/ GPTC 定时器"]
         PAD_GPIO["5组 PADCTRL 与 GPIO 控制器"]
-        ICU_WDT["5组 32位中断控制器 ICU 与硬件看门狗 WDT"]
+        ICU_WDT["5组 32位中断控制器 ICU 与硬件看门狗<br/>WDT"]
     end
 
+    CPU_DOMAIN ~~~ GPON_DOMAIN ~~~ ETH_DOMAIN ~~~ OPTIC_DOMAIN ~~~ PERIPH_DOMAIN
+    PMA ~~~ MPD ~~~ DCDC
+    EBU ~~~ FPI_PERIPH ~~~ PAD_GPIO ~~~ ICU_WDT
     VPE0 --> GPON_DOMAIN
     VPE0 --> ETH_DOMAIN
     VPE0 --> OPTIC_DOMAIN

@@ -15,8 +15,8 @@
 
 ```mermaid
 flowchart TD
-    ONU_INIT["数据通路初始化"] -->|配置寄存器与微码| DEV_ONU["GTC 0x1DC00000 / GPE 0x1D400000 / EIM 0x1D800000"]
-    OPTIC_INIT["光前端校准与闭环"] -->|GOI 参数与温度表| DEV_OPTIC["PMA 0x1DD00000 / FCSIC 0x1DD00600 / DCDC_APD 0x1E805000"]
+    ONU_INIT["数据通路初始化"] -->|配置寄存器与微码| DEV_ONU["GTC 0x1DC00000 / GPE 0x1D400000 /<br/>EIM 0x1D800000"]
+    OPTIC_INIT["光前端校准与闭环"] -->|GOI 参数与温度表| DEV_OPTIC["PMA 0x1DD00000 / FCSIC 0x1DD00600 /<br/>DCDC_APD 0x1E805000"]
     SFP_LOOP["SFF-8472 DDM 同步"] -->|采集 MM ADC 与光功率| DEV_OPTIC
     SFP_LOOP -->|读取 PLOAM 状态| DEV_ONU
     SFP_LOOP -->|更新 A0h/A2h 共享内存 0x1F200200| DEV_SFP["VPE1 I2C 从机协处理器"]

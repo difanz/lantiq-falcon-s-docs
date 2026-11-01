@@ -7,7 +7,7 @@ Falcon 的 ICU 包含 IM0–IM4 五组、每组 32 条外设输入，汇总到 M
 ## 4.1 CP0 与 ICU 级联
 
 ```mermaid
-flowchart LR
+flowchart TD
     DEV["外设源状态与使能"] --> ICU["IM0–IM4，每组32位"]
     ICU --> CP0["CP0 IP2–IP6"]
     CP0 --> DISPATCH["读取IOSR并分派hwirq"]

@@ -12,8 +12,8 @@ GTC 跨越两个硬件时钟与复位控制域：
 - `SYS_GPON`（`0x1DF00000`）：`GTCTX`（bit 0，155.52 MHz / 311.04 MHz 上行发送时钟）、`GTCTXPDI`（bit 1，上行 PDI 寄存器接口时钟）、`GTCRX`（bit 2，311.04 MHz 下行接收时钟）、`GTCRXPDI`（bit 3，下行 PDI 寄存器接口时钟）、`GPEIF`（bit 8，GTC 至 GPE 数据接口时钟）。
 
 ```mermaid
-flowchart LR
-    PMA["PMA 0x1DD00000 - 2.488 Gbps RX / 1.244 Gbps TX"] <--> GTC["GTC 0x1DC00000 - 下行同步/FEC/AES/Port-ID - 上行 BWmap/PLOAM/DBRu"]
+flowchart TD
+    PMA["PMA 0x1DD00000 - 2.488 Gbps RX /<br/>1.244 Gbps TX"] <--> GTC["GTC 0x1DC00000 -<br/>下行同步/FEC/AES/Port-ID - 上行<br/>BWmap/PLOAM/DBRu"]
     GTC -->|下行 GEM 帧| ICTRLG["ICTRLG 0x1D450000"]
     OCTRLG["OCTRLG 0x1D420000"] -->|上行 GEM 帧| GTC
     GTC <-->|PLOAM FIFO 与中断| CPU["MIPS 34Kc"]

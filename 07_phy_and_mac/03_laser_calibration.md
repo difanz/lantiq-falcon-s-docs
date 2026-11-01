@@ -7,11 +7,11 @@ PMA 测量模块（Measurement Module，MM）集成多通道模拟多路复用�
 测量模块由 FCSI 模拟控制寄存器 `MM_CTRL`（FCSI 地址 `0x0E`）、带隙基准控制 `CBIAS_CTRL0..1`（FCSI 地址 `0x14`–`0x15`）以及 PMA 数字测量切片 `GPON_MM_SLICE_PDI`（物理基址 `0x1DD00100`）组成。
 
 ```mermaid
-flowchart LR
-    CH["模拟输入通道 - 内部/外部温度, VDD, RSSI 1490/1550, RF"] --> MUX["FCSI MM_CTRL 0x0E - 多路选择与可编程增益"]
-    MUX --> ADC["MM_SLICE ADC 0x100..0x108 - Sigma-Delta 采样与滤波"]
-    ADC --> RES["10 通道采样结果槽 - M_SET0..9 0x134..0x158 - M_RESULT0..9 0x10C..0x130"]
-    RES -->|校准温度 T| LUT["温度补偿查找表 - P0/P1, Ibias/Imod, Vapd, RSSI 修正"]
+flowchart TD
+    CH["模拟输入通道 - 内部/外部温度, VDD,<br/>RSSI 1490/1550, RF"] --> MUX["FCSI MM_CTRL 0x0E -<br/>多路选择与可编程增益"]
+    MUX --> ADC["MM_SLICE ADC 0x100..0x108 -<br/>Sigma-Delta 采样与滤波"]
+    ADC --> RES["10 通道采样结果槽 - M_SET0..9<br/>0x134..0x158 - M_RESULT0..9<br/>0x10C..0x130"]
+    RES -->|校准温度 T| LUT["温度补偿查找表 - P0/P1, Ibias/Imod,<br/>Vapd, RSSI 修正"]
 ```
 
 ### 1. FCSI `MM_CTRL`（`0x0E`）与 `CBIAS_CTRL0..1`（`0x14`–`0x15`）

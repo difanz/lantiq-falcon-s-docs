@@ -24,46 +24,56 @@ Lantiq Falcon（PEB/PEF 98035）采用控制平面与数据平面物理分离的
 Falcon SoC 以 **BIU（Bus Interface Unit，总线接口单元）** 为中心，向外辐射出五条功能隔离的物理总线域。各总线域的物理地址范围、时钟属性及挂载模块如下：
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph CORE["MIPS 34Kc 处理器核"]
         VPE0["VPE0 主处理单元"]
         VPE1["VPE1 实时协处理单元"]
     end
 
-    BIU["BIU 总线接口与 Crossbar 矩阵 0x1F800000"]
+    BIU["BIU 总线接口与 Crossbar 矩阵<br/>0x1F800000"]
     VPE0 <--> BIU
     VPE1 <--> BIU
 
     subgraph MEM_EBU["外部存储与闪存域"]
-        DDR["DDR2 SDRAM 控制器 0x00000000 - 0x03FFFFFF"]
-        EBU_WIN["EBU SPI Flash 映射窗口 0x10000000 - 0x13FFFFFF"]
-        LBUS_WIN["EBU Localbus 窗口 0x14000000 - 0x17FFFFFF"]
-        EBU_REG["EBU 与 SFSM 控制器 0x18000000"]
+        direction TB
+        DDR["DDR2 SDRAM 控制器<br/>0x00000000 - 0x03FFFFFF"]
+        EBU_WIN["EBU SPI Flash 映射窗口<br/>0x10000000 - 0x13FFFFFF"]
+        LBUS_WIN["EBU Localbus 窗口<br/>0x14000000 - 0x17FFFFFF"]
+        EBU_REG["EBU 与 SFSM 控制器<br/>0x18000000"]
+        DDR ~~~ EBU_WIN ~~~ LBUS_WIN ~~~ EBU_REG
     end
 
-    subgraph SBS0["SBS0 片上内存与 GPHY 域 0x1F000000"]
-        GPHY_ROM["GPHY 内部 ROM 窗口 0x1F018000 - 0x1F02FFFF"]
-        SBS0CTRL["SBS0CTRL 控制器 0x1F080000"]
-        SBS0RAM["SBS0RAM 1216KiB 片上 SRAM 0x1F200000 - 0x1F32FFFF"]
+    subgraph SBS0["SBS0 片上内存与 GPHY 域<br/>0x1F000000"]
+        direction TB
+        GPHY_ROM["GPHY 内部 ROM 窗口<br/>0x1F018000 - 0x1F02FFFF"]
+        SBS0CTRL["SBS0CTRL 控制器<br/>0x1F080000"]
+        SBS0RAM["SBS0RAM 1216KiB 片上 SRAM<br/>0x1F200000 - 0x1F32FFFF"]
+        GPHY_ROM ~~~ SBS0CTRL ~~~ SBS0RAM
     end
 
-    subgraph SBS2["SBS2 高速数据通路域 0x1D000000"]
-        MPS["MPS 处理器间通信与门控 0x1D004000"]
-        GPE_SUB["GPE 引擎集群与 TMU/IQM/FSQM 0x1D400000 - 0x1D7000FF"]
-        ETH_SUB["EIM / SXGMII / SGMII / GPIO0,2 / SYS_ETH 0x1D800000 - 0x1DB020FF"]
-        GTC_TOD["GTC GPON 传输汇聚与 TOD 0x1DC00000 - 0x1DEFFEFF"]
+    subgraph SBS2["SBS2 高速数据通路域<br/>0x1D000000"]
+        direction TB
+        MPS["MPS 处理器间通信与门控<br/>0x1D004000"]
+        GPE_SUB["GPE 引擎集群与 TMU/IQM/FSQM<br/>0x1D400000 - 0x1D7000FF"]
+        ETH_SUB["EIM / SXGMII / SGMII / GPIO0,2 /<br/>SYS_ETH<br/>0x1D800000 - 0x1DB020FF"]
+        GTC_TOD["GTC GPON 传输汇聚与 TOD<br/>0x1DC00000 - 0x1DEFFEFF"]
+        MPS ~~~ GPE_SUB ~~~ ETH_SUB ~~~ GTC_TOD
     end
 
-    subgraph FPI["FPI 外设总线域 0x1E000000"]
-        SERIAL["ASC0 / ASC1 串口与 SSC0 SPI 0x1E100B00 - 0x1E100DFF"]
-        GPTC["GPTC 通用定时器 0x1E100E00"]
-        I2C["I2C 控制器 0x1E200000"]
-        PAD_SYS1["GPIO1,3,4 / PADCTRL1,3,4 / STATUS / SYS1 0x1E800100 - 0x1EF000FF"]
+    subgraph FPI["FPI 外设总线域<br/>0x1E000000"]
+        direction TB
+        SERIAL["ASC0 / ASC1 串口与 SSC0 SPI<br/>0x1E100B00 - 0x1E100DFF"]
+        GPTC["GPTC 通用定时器<br/>0x1E100E00"]
+        I2C["I2C 控制器<br/>0x1E200000"]
+        PAD_SYS1["GPIO1,3,4 / PADCTRL1,3,4 / STATUS /<br/>SYS1<br/>0x1E800100 - 0x1EF000FF"]
+        SERIAL ~~~ GPTC ~~~ I2C ~~~ PAD_SYS1
     end
 
-    subgraph BIU_LOCAL["BIU 本地控制外设 0x1F880000"]
-        ICU["ICU 5组中断控制器 IM0-IM4 0x1F880200"]
-        WDT["WDT 硬件看门狗 0x1F8803F0"]
+    subgraph BIU_LOCAL["BIU 本地控制外设<br/>0x1F880000"]
+        direction TB
+        ICU["ICU 5组中断控制器 IM0-IM4<br/>0x1F880200"]
+        WDT["WDT 硬件看门狗<br/>0x1F8803F0"]
+        ICU ~~~ WDT
     end
 
     BIU <--> MEM_EBU
@@ -71,6 +81,7 @@ flowchart LR
     BIU <--> SBS2
     BIU <--> FPI
     BIU <--> BIU_LOCAL
+    MEM_EBU ~~~ SBS0 ~~~ SBS2 ~~~ FPI ~~~ BIU_LOCAL
 ```
 
 1. **DDR2 与 EBU 存储总线域（`0x00000000`–`0x180000FF`）**
@@ -99,22 +110,22 @@ flowchart LR
 在 GPON 正常转发状态下，下行（OLT 至以太网主机端口）与上行（以太网主机端口至 OLT）以太网帧全程在 `SBS2` 总线域内的硬件模块间流转，无需 MIPS 34Kc CPU 参与字节搬运：
 
 ```mermaid
-flowchart LR
-    OLT["GPON 光纤接口 2.488G下行 / 1.244G上行"]
-    GTC["GTC 传输汇聚层 0x1DC00000"]
-    ICTRLG["ICTRLG GPON入口DMA 0x1D450000"]
-    ICTRLL["ICTRLL0-3 LAN入口DMA 0x1D460000"]
-    FSQM["FSQM 空闲段管理与共享包缓冲 0x1D500000"]
-    IQM["IQM 入队管理 0x1D410000"]
-    DISP["DISP 封包分配器 0x1D600500"]
-    PE["PE0-PE5 微码引擎集群 0x1D610000"]
+flowchart TD
+    OLT["GPON 光纤接口 2.488G下行 /<br/>1.244G上行"]
+    GTC["GTC 传输汇聚层<br/>0x1DC00000"]
+    ICTRLG["ICTRLG GPON入口DMA<br/>0x1D450000"]
+    ICTRLL["ICTRLL0-3 LAN入口DMA<br/>0x1D460000"]
+    FSQM["FSQM 空闲段管理与共享包缓冲<br/>0x1D500000"]
+    IQM["IQM 入队管理<br/>0x1D410000"]
+    DISP["DISP 封包分配器<br/>0x1D600500"]
+    PE["PE0-PE5 微码引擎集群<br/>0x1D610000"]
     COP["COP0-COP7 硬件表项协处理器"]
-    MERGE["MERGE 封包合并器 0x1D600600"]
-    TMU["TMU 流量管理与调度 0x1D404000"]
-    OCTRLG["OCTRLG GPON出口DMA 0x1D420000"]
-    OCTRLL["OCTRLL0-3 LAN出口DMA 0x1D440000"]
-    EIM["EIM GMAC0-3 与 SGMII/GPHY 0x1D800000"]
-    CPU_LINK["LINK0 CPU 控制面硬件 FIFO 通道 0x1D600200"]
+    MERGE["MERGE 封包合并器<br/>0x1D600600"]
+    TMU["TMU 流量管理与调度<br/>0x1D404000"]
+    OCTRLG["OCTRLG GPON出口DMA<br/>0x1D420000"]
+    OCTRLL["OCTRLL0-3 LAN出口DMA<br/>0x1D440000"]
+    EIM["EIM GMAC0-3 与 SGMII/GPHY<br/>0x1D800000"]
+    CPU_LINK["LINK0 CPU 控制面硬件 FIFO 通道<br/>0x1D600200"]
 
     OLT <--> GTC
     GTC --> ICTRLG

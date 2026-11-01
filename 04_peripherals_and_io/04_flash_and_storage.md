@@ -78,33 +78,36 @@ Lantiq Falcon（PEB/PEF 98035）通过**外部总线单元（External Bus Unit, 
 
 ```mermaid
 flowchart TD
-    INIT["1. 准备命令头: 记录 CS 编号、8位 Opcode 并置位 KEEP_CS=1"]
-    ADDR_DUM["2. 若含地址或空周期: 将 1-4 字节地址大端打包写入 SFADDR +0x90, 在命令字中设置 ALEN 与 DUMLEN"]
+    INIT["1. 准备命令头: 记录 CS 编号、8位<br/>Opcode 并置位 KEEP_CS=1"]
+    ADDR_DUM["2. 若含地址或空周期: 将 1-4<br/>字节地址大端打包写入 SFADDR +0x90,<br/>在命令字中设置 ALEN 与 DUMLEN"]
     BRANCH["3. 判断数据相类型"]
 
     subgraph WRITE_LOOP["写数据循环 (DIR = 1)"]
-        W_PACK["将最多 4 字节按小端序打包写入 SFDATA +0x94"]
+        direction TB
+        W_PACK["将最多 4 字节按小端序打包写入 SFDATA<br/>+0x94"]
         W_LAST["若为最后一批字节则清零 KEEP_CS=0"]
-        W_WAIT["轮询 SFSTAT +0x88 确认 CMD_BUSY 0x00500000 == 0"]
-        W_TRIG["向 SFCMD +0x8C 写入 cmd 或 DIR_WRITE 或 len_shifted, 随后清零缓存 cmd 的 ALEN 与 DUMLEN"]
+        W_WAIT["轮询 SFSTAT +0x88 确认 CMD_BUSY<br/>0x00500000 == 0"]
+        W_TRIG["向 SFCMD +0x8C 写入 cmd 或 DIR_WRITE<br/>或 len_shifted, 随后清零缓存 cmd 的<br/>ALEN 与 DUMLEN"]
         W_PACK --> W_LAST --> W_WAIT --> W_TRIG
     end
 
     subgraph READ_LOOP["读数据循环 (DIR = 0)"]
-        R_LAST["每次取 len = min(剩余字节, 4); 若剩余不超过 4 字节则清零 KEEP_CS=0"]
+        direction TB
+        R_LAST["每次取 len = min(剩余字节, 4);<br/>若剩余不超过 4 字节则清零 KEEP_CS=0"]
         R_WAIT1["轮询 SFSTAT +0x88 确认 CMD_BUSY == 0"]
-        R_TRIG["向 SFCMD +0x8C 写入 cmd 与本拍长度 DLEN, 随后清零缓存 cmd 的 ALEN 与 DUMLEN"]
-        R_WAIT2["再次轮询 SFSTAT +0x88 等待 CMD_BUSY == 0 接收完成"]
-        R_UNPACK["读取 SFDATA +0x94, 按 val & 0xFF 依次右移 8 位提取 len 个字节"]
+        R_TRIG["向 SFCMD +0x8C 写入 cmd 与本拍长度<br/>DLEN, 随后清零缓存 cmd 的 ALEN 与<br/>DUMLEN"]
+        R_WAIT2["再次轮询 SFSTAT +0x88 等待 CMD_BUSY<br/>== 0 接收完成"]
+        R_UNPACK["读取 SFDATA +0x94, 按 val & 0xFF<br/>依次右移 8 位提取 len 个字节"]
         R_LAST --> R_WAIT1 --> R_TRIG --> R_WAIT2 --> R_UNPACK
     end
 
-    NO_DATA["无数据相纯命令 (如 0x06 WREN 或带地址擦除 0xD8): 清零 KEEP_CS=0 且 DLEN=0, 直接写入 SFCMD +0x8C"]
+    NO_DATA["无数据相纯命令 (如 0x06 WREN<br/>或带地址擦除 0xD8): 清零 KEEP_CS=0<br/>且 DLEN=0, 直接写入 SFCMD +0x8C"]
 
     INIT --> ADDR_DUM --> BRANCH
     BRANCH -->|有写数据| WRITE_LOOP
     BRANCH -->|有读数据| READ_LOOP
     BRANCH -->|无数据阶段| NO_DATA
+    WRITE_LOOP ~~~ READ_LOOP ~~~ NO_DATA
 ```
 
 ### 关键硬件行为约束

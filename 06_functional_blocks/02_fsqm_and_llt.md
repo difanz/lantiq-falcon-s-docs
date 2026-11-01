@@ -31,7 +31,7 @@ flowchart TD
     end
 
     subgraph SSB0_Block["SBS0RAM 0x1F200000"]
-        SEG["18432 x 64B 数据段 LSA 0x0000..0x47FF"]
+        SEG["18432 x 64B 数据段 LSA<br/>0x0000..0x47FF"]
     end
 
     ICTRL -->|申请空闲 LSA| OFSC

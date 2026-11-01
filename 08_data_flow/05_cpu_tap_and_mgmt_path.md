@@ -9,31 +9,38 @@ GPE 数据通路在硬件上同时支持**无 CPU 介入的全卸载线速转发
 在稳态二层桥接与 VLAN 转发场景下，GPON ANI 侧与以太网 UNI 侧之间的双向数据流量全部在片上硬件状态机、包缓冲 RAM（`SSB0`）与微码引擎（`SCE` + `COP0..5`）内部闭环流动，普通转发包无需逐包经过主控 `VPE0`。控制面、异常、拥塞与统计仍可能引起 CPU 中断或软件处理，因此这里不表示整机“零中断”，也不是吞吐量实测。
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph ANI_SIDE["GPON 光线路侧 - ANI"]
-        GTC_RX["GTC 下行解帧与 AES-128 解密 0x1DC00000"]
-        ICTRLG["ICTRLG GEM 重组与 FCS 校验 0x1D450000"]
-        OCTRLG["OCTRLG DBRu 与 GEM 任意字节切片 0x1D420000"]
-        GTC_TX["GTC 上行突发成帧与 FEC 0x1DC00000"]
+        direction TB
+        GTC_RX["GTC 下行解帧与 AES-128 解密<br/>0x1DC00000"]
+        ICTRLG["ICTRLG GEM 重组与 FCS 校验<br/>0x1D450000"]
+        OCTRLG["OCTRLG DBRu 与 GEM 任意字节切片<br/>0x1D420000"]
+        GTC_TX["GTC 上行突发成帧与 FEC<br/>0x1DC00000"]
+        GTC_RX ~~~ ICTRLG ~~~ OCTRLG ~~~ GTC_TX
     end
 
     subgraph MEM_POOL["零拷贝分段内存池"]
-        FSQM["FSQM 空闲段分配与 LLT 链表 0x1D500000"]
-        SSB0["SSB0 64B 分段缓冲区 0x1F200000"]
+        direction TB
+        FSQM["FSQM 空闲段分配与 LLT 链表<br/>0x1D500000"]
+        SSB0["SSB0 64B 分段缓冲区<br/>0x1F200000"]
+        FSQM ~~~ SSB0
     end
 
     subgraph CORE_PIPE["GPE 核心分类与调度流水线"]
-        IQM["IQM 入向队列 Q0..Q3 / Q5..Q7 0x1D410000"]
-        DISP["DISP 保序分发与头部提取 0x1D600500"]
-        SCE["PE0..5 + COP0..5 桥接与 VLAN 改写 0x1D610000"]
-        MERGE["MERGE 保序聚合与头部段挂载 0x1D600600"]
-        TMU["TMU WRED 准入与三级调度器 0x1D404000"]
+        direction TB
+        IQM["IQM 入向队列 Q0..Q3 / Q5..Q7<br/>0x1D410000"]
+        DISP["DISP 保序分发与头部提取<br/>0x1D600500"]
+        SCE["PE0..5 + COP0..5 桥接与 VLAN 改写<br/>0x1D610000"]
+        MERGE["MERGE 保序聚合与头部段挂载<br/>0x1D600600"]
+        TMU["TMU WRED 准入与三级调度器<br/>0x1D404000"]
     end
 
     subgraph UNI_SIDE["以太网用户侧 - UNI"]
-        OCTRLL["OCTRLL0..3 EPN 64..67 输出 0x1D440000"]
-        ICTRLL["ICTRLL0..3 LAN 输入 DMA 0x1D460000"]
-        EIM["EIM MAC 与 GPHY / SGMII 0x1D800000"]
+        direction TB
+        OCTRLL["OCTRLL0..3 EPN 64..67 输出<br/>0x1D440000"]
+        ICTRLL["ICTRLL0..3 LAN 输入 DMA<br/>0x1D460000"]
+        EIM["EIM MAC 与 GPHY / SGMII<br/>0x1D800000"]
+        ICTRLL ~~~ OCTRLL ~~~ EIM
     end
 
     GTC_RX --> ICTRLG
@@ -84,17 +91,17 @@ GPON 封装方法（GEM，ITU-T G.984.3）在物理层控制块（PCBd）之后�
 每个 125 µs 下行 GTC 帧（2.48832 Gbps 下固定为 `38,880 B`）由帧首的 `PCBd` 与紧随其后的 `GTC Payload` 组成。`GTC Payload` 内紧密排列连续的 GEM 帧（无业务时填充 5 字节 GEM Idle 帧 `0x000FFF0165`）：
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph GTC_FRAME["125 us GTC 下行帧 - 38880 Bytes"]
-        PCBD["PCBd 控制块: PSync 4B / Ident 4B / PLOAMd 13B / BIP 1B / Plend 8B / US BWmap 8BxN"]
+        PCBD["PCBd 控制块: PSync 4B / Ident 4B /<br/>PLOAMd 13B / BIP 1B / Plend 8B / US<br/>BWmap 8BxN"]
         GEM1["GEM 帧 1"]
         GEM2["GEM 帧 2 - 大包分片 1 PTI=000b"]
         GEM3["GEM 帧 3 - 大包分片 2 PTI=001b"]
     end
 
     subgraph GEM_ENV["单个 GEM 帧信封结构"]
-        GHDR["5 字节 GEM Header 40-bit: PLI 12b / Port-ID 12b / PTI 3b / HEC 13b"]
-        GPAY["GEM Payload PLI Bytes AES-128 CTR: Ethernet L2 PDU 或 48B OMCI PDU"]
+        GHDR["5 字节 GEM Header 40-bit: PLI 12b /<br/>Port-ID 12b / PTI 3b / HEC 13b"]
+        GPAY["GEM Payload PLI Bytes AES-128 CTR:<br/>Ethernet L2 PDU 或 48B OMCI PDU"]
     end
 
     PCBD --> GEM1 --> GEM2 --> GEM3
@@ -138,15 +145,15 @@ GEM 净荷经过 `GTC` 在线 AES-128 CTR 解密并由 `ICTRLG` 跨分片（连�
 
 ```mermaid
 flowchart TD
-    subgraph PRE_SCE["1. 入向信封 - ICTRLG / ICTRLL -> IQM -> DISP"]
-        ORIG_SEG0["Original_HLSA 64B: 0..HDR_LEN-1 原始 L2 头 + HDR_LEN..63 净荷前段"]
-        ORIG_SEG1["NLSA .. TLSA 64B x N: 后续连续报文净荷"]
+    subgraph PRE_SCE["1. 入向信封 - ICTRLG / ICTRLL -> IQM<br/>-> DISP"]
+        ORIG_SEG0["Original_HLSA 64B: 0..HDR_LEN-1 原始<br/>L2 头 + HDR_LEN..63 净荷前段"]
+        ORIG_SEG1["NLSA .. TLSA 64B x N:<br/>后续连续报文净荷"]
         ORIG_SEG0 -->|LLT 指针| ORIG_SEG1
     end
 
-    subgraph POST_SCE["2. 出向双段式信封 - SCE -> MERGE -> TMU -> OCTRLG / OCTRLL / OCTRLC"]
-        NEW_HDR["New_HLSA 独立头部段 64B: 0..HDRL-1 改写后 L2 头或 8B CPU 头 + L2 头"]
-        BODY_SEG0["Original_HLSA 净荷首段 64B: 0..OFFS-1 已废弃旧 L2 头跳过 + OFFS..63 净荷起始"]
+    subgraph POST_SCE["2. 出向双段式信封 - SCE -> MERGE -><br/>TMU -> OCTRLG / OCTRLL / OCTRLC"]
+        NEW_HDR["New_HLSA 独立头部段 64B: 0..HDRL-1<br/>改写后 L2 头或 8B CPU 头 + L2 头"]
+        BODY_SEG0["Original_HLSA 净荷首段 64B:<br/>0..OFFS-1 已废弃旧 L2 头跳过 +<br/>OFFS..63 净荷起始"]
         BODY_SEG1["后续段 .. TLSA: 剩余净荷体 BDYL"]
         NEW_HDR -->|LLT 指针 seg_offset=1| BODY_SEG0
         BODY_SEG0 -->|LLT 指针| BODY_SEG1
@@ -176,22 +183,22 @@ flowchart TD
 ```mermaid
 flowchart TD
     subgraph CPU_HOST["VPE0 Linux 内核与网络接口层"]
-        NETDEV["8 个逻辑网络端口: host / lct0..3 / exc / dbg / dbc"]
+        NETDEV["8 个逻辑网络端口: host / lct0..3 /<br/>exc / dbg / dbc"]
         OMCI_APP["OMCI 守护进程与表管理接口"]
     end
 
     subgraph CPU_HW_IF["CPU 接入 GPE 的 5 组硬件接口"]
-        ICTRLC0["ICTRLC0 0x1D461000 - 上行入向注入"]
-        ICTRLC1["ICTRLC1 0x1D461100 - 下行入向与命令注入"]
-        LINK0["LINK0 0x1D600200 - 绕过 SCE 直接入队 TMU"]
-        LINK1["LINK1 0x1D600300 - OMCI 入向直读"]
-        OCTRLC["OCTRLC 0x1D441000 - CPU 出向端口调度读取"]
+        ICTRLC0["ICTRLC0<br/>0x1D461000 - 上行入向注入"]
+        ICTRLC1["ICTRLC1<br/>0x1D461100 - 下行入向与命令注入"]
+        LINK0["LINK0<br/>0x1D600200 - 绕过 SCE 直接入队 TMU"]
+        LINK1["LINK1<br/>0x1D600300 - OMCI 入向直读"]
+        OCTRLC["OCTRLC<br/>0x1D441000 - CPU 出向端口调度读取"]
     end
 
     subgraph GPE_CORE["GPE 硬件数据通路"]
-        IQM_BLK["IQM 入向队列: Q4 CPU_US / Q7 OMCI / Q8 CPU_DS"]
+        IQM_BLK["IQM 入向队列: Q4 CPU_US / Q7 OMCI /<br/>Q8 CPU_DS"]
         SCE_BLK["DISP + PE0..5 + COP0..5 + MERGE"]
-        TMU_BLK["TMU 256 队列: EPN 0..63 ANI / EPN 64..67 UNI / EPN 68..71 CPU"]
+        TMU_BLK["TMU 256 队列: EPN 0..63 ANI / EPN<br/>64..67 UNI / EPN 68..71 CPU"]
     end
 
     NETDEV -->|host / exc 入向注入| ICTRLC0

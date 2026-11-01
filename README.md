@@ -11,7 +11,7 @@ Lantiq Falcon（PEB 98035 / PEF 98035）GPON SoC 硬件架构、寄存器映射�
 
 ## 本地构建与阅读入口
 
-使用 Python 3.12 或更新版本，在独立虚拟环境安装依赖（当前 Sphinx 与 Lumina 版本均要求 Python 3.12，Read the Docs 配置与此一致）：
+使用 Python 3.12 或更新版本，在独立虚拟环境安装依赖（Read the Docs 使用 Python 3.12）：
 
 ```sh
 python3 -m venv .venv
@@ -20,6 +20,8 @@ make check SPHINXBUILD=.venv/bin/sphinx-build
 ```
 
 HTML 入口为 `_build/html/index.html`。`make check` 强制重新读取源文件，启用缺失引用检查并将警告视为失败。普通增量构建使用 `make html`（同样传入 `SPHINXBUILD`）；Read the Docs 使用 `.readthedocs.yaml` 并在警告时失败。安装依赖需要网络；Mermaid 图的浏览器渲染也需要加载相应脚本。
+
+页面使用 [Material for Sphinx](https://bashtage.github.io/sphinx-material/) 0.0.36 主题。桌面正文随窗口展开，图表优先从上到下排列；窄屏中的长表格和代码块可横向滚动。
 
 Sphinx 导航以 `index.md` 和各章 `index.md` 的 toctree 为准。README 是 Markdown 阅读入口，按配置不生成 HTML 页面。
 

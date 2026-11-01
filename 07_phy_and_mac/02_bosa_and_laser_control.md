@@ -39,10 +39,10 @@ Falcon SoC 支持两种光学前端工作模式：**BOSA 模式**（片上直接
 ```mermaid
 flowchart TD
     LASER["激光二极管 LD - 上行突发发光"] -->|背向尾光| MPD["背光监测二极管 MPD"]
-    MPD -->|光生电流| TIA["FCSI BFD 模拟前端 0x10..0x12 - 4 档跨阻增益 GVS + TIA 失调补偿"]
-    TIA -->|模拟电平| COMP["PMA BFD 采样比较器 - P0 电平 0x1AC 与 P1 电平 0x1B0"]
-    COMP -->|比较符号结果| LOOP["双环数字调节器 0x190..0x1A4 - P0 环调节 Ibias + P1 环调节 Imod"]
-    LOOP -->|更新 DAC 码字| TX["PMA TX Slice 0x200..0x21C - 与 FCSI TXBOSA 0x00..0x07"]
+    MPD -->|光生电流| TIA["FCSI BFD 模拟前端 0x10..0x12 - 4<br/>档跨阻增益 GVS + TIA 失调补偿"]
+    TIA -->|模拟电平| COMP["PMA BFD 采样比较器 - P0 电平 0x1AC<br/>与 P1 电平 0x1B0"]
+    COMP -->|比较符号结果| LOOP["双环数字调节器 0x190..0x1A4 - P0<br/>环调节 Ibias + P1 环调节 Imod"]
+    LOOP -->|更新 DAC 码字| TX["PMA TX Slice 0x200..0x21C - 与 FCSI<br/>TXBOSA 0x00..0x07"]
     TX --> LASER
 ```
 

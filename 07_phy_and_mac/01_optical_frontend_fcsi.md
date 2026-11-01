@@ -15,10 +15,10 @@ GPON PMA（Physical Medium Attachment）子层与 FCSI（Fast Control Serial Int
 | `SYS_GPON` | `0x1DF00000` | `0xBDF00000` | `0x00000100`（256 B） | GPON 子系统时钟门控、复位控制与 NTR 定时配置 |
 
 ```mermaid
-flowchart LR
-    GTC["GTC 0x1DC00000"] <--> GTC_PMA["GTC_PMA 0x1DEFFF00 - DRC 速率控制 + LTS 序列"]
-    GTC_PMA <--> PMA["PMA 数字切片 0x1DD00000 - RX / MM / BFD / TX / PLL / BERT"]
-    FCSIC["FCSIC 0x1DD00600 - CMD / DATA / STAT"] -->|片内 FCSI 串行总线| AFE["模拟前端从设备 0x00..0x18 - TXBOSA / RXBOSA / BFD / MM / CBIAS / VDAC / VDLL"]
+flowchart TD
+    GTC["GTC 0x1DC00000"] <--> GTC_PMA["GTC_PMA 0x1DEFFF00 - DRC 速率控制 +<br/>LTS 序列"]
+    GTC_PMA <--> PMA["PMA 数字切片 0x1DD00000 - RX / MM /<br/>BFD / TX / PLL / BERT"]
+    FCSIC["FCSIC 0x1DD00600 - CMD / DATA / STAT"] -->|片内 FCSI 串行总线| AFE["模拟前端从设备 0x00..0x18 - TXBOSA /<br/>RXBOSA / BFD / MM / CBIAS / VDAC /<br/>VDLL"]
     PMA <--> AFE
 ```
 

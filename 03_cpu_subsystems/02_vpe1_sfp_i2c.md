@@ -59,13 +59,13 @@ VPE1 的加载地址、可用容量与主系统的内存分配必须一致。采
 
 ```mermaid
 flowchart TD
-    S1["1. VPE0 进入 MT 配置态: 执行 dmt 与 dvpe, 置位 MVPControl.VPC=1 并执行 ehb"]
-    S2["2. 选通并停止 TC1: 写 VPEControl.TARGTC=1, 写 TCHalt=1, 清零 TCStatus.A=0"]
-    S3["3. 将 TC1 绑定至 VPE1: 写 TCBind.CurVPE=1, 保持 VPEControl.TARGTC=1"]
-    S4["4. 配置 VPE1 CP0 环境: 置 VPEConf0.MVP=1 且 VPA=0, Config0=0x80000003, 清零 Cause, 配置 Status 与 SRSConf0=0x3FEFFF"]
-    S5["5. 注入入口与栈指针: 写 TCRestart=LOAD_ADDR, mttgpr 写 GPR29 sp=SP_INIT, 置 TCStatus.A=1 且 IXMT=0, 置 VPEConf0.XTC=1 且 VPA=1"]
-    S6["6. 可选 I-Cache 路隔离: 写 VPE1 VPEOpt=0x800, 清零 VPEConf0.ICS, 置位 MVPControl.CPA=1"]
-    S7["7. 刷写缓存并释放运行: 写回 D-Cache 并失效 I-Cache, 写 TCHalt=0, 清零 MVPControl.VPC=0, 执行 emt 与 evpe"]
+    S1["1. VPE0 进入 MT 配置态: 执行 dmt 与<br/>dvpe, 置位 MVPControl.VPC=1 并执行<br/>ehb"]
+    S2["2. 选通并停止 TC1: 写<br/>VPEControl.TARGTC=1, 写 TCHalt=1,<br/>清零 TCStatus.A=0"]
+    S3["3. 将 TC1 绑定至 VPE1: 写<br/>TCBind.CurVPE=1, 保持<br/>VPEControl.TARGTC=1"]
+    S4["4. 配置 VPE1 CP0 环境: 置<br/>VPEConf0.MVP=1 且 VPA=0,<br/>Config0=0x80000003, 清零 Cause, 配置<br/>Status 与 SRSConf0=0x3FEFFF"]
+    S5["5. 注入入口与栈指针: 写<br/>TCRestart=LOAD_ADDR, mttgpr 写 GPR29<br/>sp=SP_INIT, 置 TCStatus.A=1 且<br/>IXMT=0, 置 VPEConf0.XTC=1 且 VPA=1"]
+    S6["6. 可选 I-Cache 路隔离: 写 VPE1<br/>VPEOpt=0x800, 清零 VPEConf0.ICS,<br/>置位 MVPControl.CPA=1"]
+    S7["7. 刷写缓存并释放运行: 写回 D-Cache<br/>并失效 I-Cache, 写 TCHalt=0, 清零<br/>MVPControl.VPC=0, 执行 emt 与 evpe"]
 
     S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
 ```

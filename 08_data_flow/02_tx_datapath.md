@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart TD
-    UNI["SGMII / SXGMII / GPHY0..1 以太网物理层"] -->|GMII / XGMII 帧流| EIM["EIM 以太网 MAC 与流控矩阵 0x1D800000"]
+    UNI["SGMII / SXGMII / GPHY0..1<br/>以太网物理层"] -->|GMII / XGMII 帧流| EIM["EIM 以太网 MAC 与流控矩阵 0x1D800000"]
     EIM -->|校验后以太网帧| ICTRLL["ICTRLL0..3 LAN 输入控制器 0x1D460000"]
     CPU["VPE0 主控注入通道"] -->|寄存器写入分段| ICTRLC["ICTRLC0..1 CPU 输入控制器 0x1D461000"]
     ICTRLL <-->|空闲段申请与释放| FSQM["FSQM 空闲段队列管理器 0x1D500000"]

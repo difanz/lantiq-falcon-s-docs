@@ -21,7 +21,7 @@ IQM 寄存器窗口位于物理地址 `0x1D410000`（KSEG1 `0xBD410000`），地
 | 8 | `CPU_DS` | MIPS CPU 注入的下行方向报文 |
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph Sources["入向通道"]
         LAN["ICTRLL0..3 Queue 0..3"]
         CPU_US["CPU US Queue 4"]
@@ -29,11 +29,12 @@ flowchart LR
         WAN_MC["ICTRLG MC Queue 6"]
         OMCI["ICTRLG OMCI Queue 7"]
         CPU_DS["CPU DS Queue 8"]
+        LAN ~~~ CPU_US ~~~ WAN_UC ~~~ WAN_MC ~~~ OMCI ~~~ CPU_DS
     end
 
     subgraph IQM_Block["IQM 0x1D410000"]
-        IQT["IQT 0..8 0x020..0x13F - QDTH / QRTH / QBTH / QOCC / QDC"]
-        WRR["WRRC 0x170 与 WRRQ0..4 0x178..0x188 - 36 个 4-bit 调度槽位"]
+        IQT["IQT 0..8 0x020..0x13F -<br/>QDTH / QRTH / QBTH / QOCC / QDC"]
+        WRR["WRRC 0x170 与 WRRQ0..4<br/>0x178..0x188 - 36 个 4-bit 调度槽位"]
     end
 
     LAN --> IQT

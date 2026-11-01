@@ -12,8 +12,8 @@ DISP（Dispatcher）与 MERGE（Merger）包夹在 6 核可编程包处理集群
 两个模块均位于 GPE 核心时钟域，由 `SYS_GPE`（`0x1D700000`）的 `DISP` 与 `MERGE` / `PE0..5` 相关时钟位控制。
 
 ```mermaid
-flowchart LR
-    IQM["IQM 0x1D410000"] -->|PDU 描述符| DISP["DISP 0x1D600500 - 分配保序标签 + 预取包头"]
+flowchart TD
+    IQM["IQM 0x1D410000"] -->|PDU 描述符| DISP["DISP 0x1D600500 - 分配保序标签 +<br/>预取包头"]
     SSB0["SBS0RAM 0x1F200000"] -->|读取首部段| DISP
 
     subgraph Cluster["PE0..PE5 集群：VM与线程标识"]

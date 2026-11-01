@@ -7,18 +7,19 @@ Lantiq Falcon（PEB/PEF 98035）通过片上基础设施锁相环（Infrastructu
 ## 3.1 片上时钟树与分频控制
 
 ```mermaid
-flowchart LR
+flowchart TD
     REF["参考时钟源 晶体 / GPON恢复时钟"]
     PLL["片上 Infrastructure PLL"]
     REF --> PLL
 
-    PLL -->|CPU0CC.CPUDIV=0 400MHz / CPUDIV=1 200MHz| CPU_CLK["MIPS 34Kc 主核时钟 VPE0 / VPE1"]
-    CPU_CLK -->|二分频| CP0_CNT["MIPS CP0 Count 定时器 200MHz / 100MHz"]
+    PLL -->|CPU0CC.CPUDIV=0 400MHz /<br/>CPUDIV=1 200MHz| CPU_CLK["MIPS 34Kc 主核时钟<br/>VPE0 / VPE1"]
+    CPU_CLK -->|二分频| CP0_CNT["MIPS CP0 Count 定时器 200MHz /<br/>100MHz"]
     PLL -->|固定 200MHz| DDR_CLK["DDR2 SDRAM 控制器时钟 DDR2-400"]
-    PLL -->|固定 100MHz| FPI_CLK["FPI 外设总线时钟 ASC / SSC / I2C / GPTC"]
-    PLL -->|EBUCC.EBUDIV=0 50MHz / EBUDIV=1 100MHz| EBU_CLK["EBU 与 SFSM 串行闪存时钟"]
+    PLL -->|固定 100MHz| FPI_CLK["FPI 外设总线时钟 ASC / SSC / I2C /<br/>GPTC"]
+    PLL -->|EBUCC.EBUDIV=0 50MHz /<br/>EBUDIV=1 100MHz| EBU_CLK["EBU 与 SFSM 串行闪存时钟"]
     PLL -->|INFRAC.GP 时钟选择与使能| GPE_CLK["GPE 微码集群与协处理器时钟"]
-    PLL -->|SGMIIC / EXTPHYC 25 / 50 / 125 / 250MHz| ETH_CLK["SGMII / GPHY / 外部 PHY 参考时钟"]
+    PLL -->|SGMIIC / EXTPHYC<br/>25 / 50 / 125 / 250MHz| ETH_CLK["SGMII / GPHY / 外部 PHY<br/>参考时钟"]
+    CPU_CLK ~~~ DDR_CLK ~~~ FPI_CLK ~~~ EBU_CLK ~~~ GPE_CLK ~~~ ETH_CLK
 ```
 
 各时钟域的硬件频率配置寄存器如下：
@@ -122,11 +123,11 @@ GPE 主时钟启用前，先检查 `INFRAC[25]`；已使能时保持当前配置
 对任一挂载于 `SYS1`、`SYS_ETH` 或 `SYS_GPE` 的硬件子模块（位掩码设为 `MASK`），访问其内部寄存器前必须按以下硬件顺序开启时钟并释放复位：
 
 ```mermaid
-flowchart LR
+flowchart TD
     OFF["模块关闭态 CLKS=0 且 ACTS=0"]
     CLK_ON["写 CLKEN +0x04 = MASK 开启模块时钟"]
     ACT_ON["写 ACT +0x24 = MASK 释放硬件复位"]
-    POLL["轮询 CLKS +0x00 与 ACTS +0x20 确认对应位均为 1"]
+    POLL["轮询 CLKS +0x00 与 ACTS +0x20<br/>确认对应位均为 1"]
     READY["模块就绪态 允许 MMIO 寄存器读写"]
     PULSE["写 RBT +0x2C = MASK 触发单脉冲软复位"]
 

@@ -3,14 +3,14 @@
 Lantiq Falcon 片上集成两路千兆以太网 PHY（GPHY0、GPHY1），每路 GPHY 内置一颗扩展型 MCS-51（8051）微控制器，独立管理物理层 R_CAL 阻抗校准、IEEE 802.3 Clause 28 自动协商、10BASE-T / 100BASE-TX / 1000BASE-T 链路训练、DSP 均衡器实时追踪、IEEE 802.3az EEE 节能控制、LED 状态指示以及 Clause 22 / Clause 45 MDIO 寄存器仿真。
 
 ```mermaid
-flowchart LR
-    SBS0_RAM["SBS0 RAM / ROM 窗口 - 0x1F204000 / 0x1F018000+"]
-    SBS0_CTRL["SBS0CTRL 地址重映射 - GPHY0IMG / GPHY1IMG"]
-    BANK_MMU["可变长度 16-Bank 代码 MMU - P1 SFR 0x90 + XDATA 0x0712-0x0731"]
-    SYS_ETH["SYS_ETH 时钟与复位 - CLKEN / ACT / DEACT / RBT"]
-    CORE["GPHY0 / GPHY1 MCS-51 核心 - CODE 0x0000-0x3FFF"]
-    XDATA["GPHY 内部外设与 SRAM - XDATA 0x0000-0x0DAB"]
-    EIM["EIM 顶层中断控制器 - eim_ier / eim_isr"]
+flowchart TD
+    SBS0_RAM["SBS0 RAM / ROM 窗口 - 0x1F204000 /<br/>0x1F018000+"]
+    SBS0_CTRL["SBS0CTRL 地址重映射 - GPHY0IMG /<br/>GPHY1IMG"]
+    BANK_MMU["可变长度 16-Bank 代码 MMU - P1 SFR<br/>0x90 + XDATA 0x0712-0x0731"]
+    SYS_ETH["SYS_ETH 时钟与复位 - CLKEN / ACT /<br/>DEACT / RBT"]
+    CORE["GPHY0 / GPHY1 MCS-51 核心 - CODE<br/>0x0000-0x3FFF"]
+    XDATA["GPHY 内部外设与 SRAM - XDATA<br/>0x0000-0x0DAB"]
+    EIM["EIM 顶层中断控制器 - eim_ier /<br/>eim_isr"]
 
     SBS0_RAM --> SBS0_CTRL
     SBS0_CTRL -->|映射至物理基址| BANK_MMU

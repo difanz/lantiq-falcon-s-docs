@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart TD
-    PMA["PMA 2.48832 Gbps 接收通道 0x1DD00000"] -->|32-bit 恢复数据流 77.76 MHz| GTC["GTC 下行解帧器与 AES-128 引擎 0x1DC00000"]
+    PMA["PMA 2.48832 Gbps 接收通道 0x1DD00000"] -->|32-bit 恢复数据流 77.76 MHz| GTC["GTC 下行解帧器与 AES-128 引擎<br/>0x1DC00000"]
     GTC -->|PLOAMd 消息| PLOAM_FIFO["GTC PLOAMd 接收 FIFO"]
     GTC -->|BWMAP 授权表| GTC_TX["GTC 上行突发调度器"]
     GTC -->|有效 GEM 帧流| ICTRLG["ICTRLG GEM 输入控制器 0x1D450000"]
@@ -21,7 +21,7 @@ flowchart TD
     TMU -->|EPN 68..71 CPU 出向端口调度| OCTRLC["OCTRLC / CPU 接收队列 0x1D441000"]
     SSB0 -->|按 LLT 链读取分段| OCTRLL
     OCTRLL -->|释放已发送分段| FSQM
-    OCTRLL -->|以太网帧流| EIM["EIM 以太网接口与 SGMII/GPHY 0x1D800000"]
+    OCTRLL -->|以太网帧流| EIM["EIM 以太网接口与 SGMII/GPHY<br/>0x1D800000"]
 ```
 
 ---

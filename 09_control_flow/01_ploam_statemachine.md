@@ -6,13 +6,13 @@
 
 ```mermaid
 flowchart TD
-    O1["O1 Initial 初始同步态 - ONU-ID = 0xFF 关断上行激光"] -->|LOS=0 且 LOF=0 帧同步锁定| O2["O2 Standby 待机态 - 等待广播 Upstream_Overhead"]
-    O1 -->|预设 Emergency Stop 标志| O7["O7 Emergency Stop 紧急关断态 - 强制关闭 PMA 激光器与 GTC TX"]
-    O2 -->|收到 3 次 Upstream_Overhead Msg 0x01 - 写入前导码/定界符/初始时延| O3["O3 Serial Number 序列号态 - 响应 SN_Request 发送 SN_ONU"]
+    O1["O1 Initial 初始同步态 - ONU-ID =<br/>0xFF 关断上行激光"] -->|LOS=0 且 LOF=0 帧同步锁定| O2["O2 Standby 待机态 - 等待广播<br/>Upstream_Overhead"]
+    O1 -->|预设 Emergency Stop 标志| O7["O7 Emergency Stop 紧急关断态 -<br/>强制关闭 PMA 激光器与 GTC TX"]
+    O2 -->|收到 3 次 Upstream_Overhead Msg 0x01 - 写入前导码/定界符/初始时延| O3["O3 Serial Number 序列号态 - 响应<br/>SN_Request 发送 SN_ONU"]
     O3 -->|收到 3 次匹配 SN 的 Assign_ONU-ID Msg 0x03 - 写入 ONU-ID 启动 TO1| O4["O4 Ranging 测距态 - 响应单播测距授权"]
-    O4 -->|收到 Ranging_Time Msg 0x04 - 写入 EqD 粗细时延 停止 TO1| O5["O5 Operation 正常工作态 - 使能 OCTRLG 数据与 AES 密钥切换"]
+    O4 -->|收到 Ranging_Time Msg 0x04 - 写入 EqD 粗细时延 停止 TO1| O5["O5 Operation 正常工作态 - 使能<br/>OCTRLG 数据与 AES 密钥切换"]
     O4 -->|TO1 超时或 Deactivate_ONU-ID| O2
-    O5 -->|检测到 LOS 或 LOF 告警 - 关闭上行激光 启动 TO2| O6["O6 POPUP 掉线保持态 - 等待光信号恢复与 POPUP 消息"]
+    O5 -->|检测到 LOS 或 LOF 告警 - 关闭上行激光 启动 TO2| O6["O6 POPUP 掉线保持态 -<br/>等待光信号恢复与 POPUP 消息"]
     O5 -->|收到 Deactivate_ONU-ID Msg 0x05| O2
     O5 -->|收到 Disable_Serial_Number 0xFF| O7
     O6 -->|收到定向 POPUP Msg 0x0C 或 Swift_POPUP Msg 0x16 - 恢复原 EqD 时延| O5

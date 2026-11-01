@@ -14,12 +14,12 @@
 UNI 逻辑端口号（`0..3`）与 EIM 内部 MAC 硬件通道索引采用反向映射：逻辑 UNI 端口 `index` 对应硬件 `MAC_PDI[3 - index]`。
 
 ```mermaid
-flowchart LR
-    ICTRLL["ICTRLL0..3 0x1D460000"] <--> EIM["EIM 0x1D800000 - 4 端口以太网 MAC + MDIO + xMII"]
+flowchart TD
+    ICTRLL["ICTRLL0..3 0x1D460000"] <--> EIM["EIM 0x1D800000 - 4 端口以太网 MAC +<br/>MDIO + xMII"]
     OCTRLL["OCTRLL0..3 0x1D440000"] <--> EIM
     EIM <-->|GMUXC 端口复用| GPHY["片上双口 PHY11G - GPHY0 / GPHY1"]
     EIM <-->|GMUXC 端口复用| XMII["外部 RGMII / MII - MII_PDI 0..1"]
-    EIM <-->|GMUXC 端口复用| SXGMII["SXGMII PCS / TBI 0x1D808800 - 1000BASE-X / SGMII / 2.5G"]
+    EIM <-->|GMUXC 端口复用| SXGMII["SXGMII PCS / TBI 0x1D808800 -<br/>1000BASE-X / SGMII / 2.5G"]
     SXGMII <--> SGMII["SGMII SerDes PMA 0x1D808C00"]
 ```
 

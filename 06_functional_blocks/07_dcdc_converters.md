@@ -15,11 +15,11 @@ Falcon SoC 片上集成三套具有相同数字控制架构的开关电源控制
 每个寄存器占用 32-bit 地址槽位，有效数据位位于低 8 位（bits [7:0]）。本节仅列出控制窗口内的寄存器；窗口外的振荡器扩展位置不作为通用访问接口。
 
 ```mermaid
-flowchart LR
-    ADC["片上感测 ADC - PDI_ADC0..2 0x034..0x03C"] -->|采样电压误差 e_n| PID["数字二阶 PID 滤波器 - B0 / B1 / B2 0x000..0x014"]
+flowchart TD
+    ADC["片上感测 ADC - PDI_ADC0..2<br/>0x034..0x03C"] -->|采样电压误差 e_n| PID["数字二阶 PID 滤波器 - B0 / B1 / B2<br/>0x000..0x014"]
     REF["数字目标基准 - PDI_DIG_REF 0x02C"] -->|目标设定值| PID
     PID -->|计算占空比| SAT["占空比限幅与死区控制 - 0x058..0x070"]
-    MDLL["MDLL 倍频时钟 - PDI_CLK_SET0/1 0x018/0x01C"] --> PWM["DPWM 调制输出 - PDI_PWM0/1 0x020/0x024"]
+    MDLL["MDLL 倍频时钟 - PDI_CLK_SET0/1<br/>0x018/0x01C"] --> PWM["DPWM 调制输出 - PDI_PWM0/1<br/>0x020/0x024"]
     SAT --> PWM
 ```
 

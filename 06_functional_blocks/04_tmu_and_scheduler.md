@@ -24,11 +24,11 @@ TMU 的 72 个出向端口（`EPN 0..71`）与预留调度器块（`SBID 0..127`
 - `SBID 126`：上行 OMCI 调度器块
 
 ```mermaid
-flowchart LR
-    MERGE["MERGE 0x1D600600"] -->|入队 QID 0..255| QMT["256 Egress Queues - QEMT / QSMT / QTHT / QOCT"]
-    QMT -->|绑定 SBIN 0..1023| SBT["128 Scheduler Blocks - SBIT / SBOT 每块 8 输入"]
-    SBT <-->|TBID 0..255 门控| TBST["256 Token Bucket Shapers - TBSTR0..10"]
-    SBT -->|逐级汇聚| EPMT["72 Egress Ports - EPN 0..71 EPMT / EPOT"]
+flowchart TD
+    MERGE["MERGE 0x1D600600"] -->|入队 QID 0..255| QMT["256 Egress Queues - QEMT / QSMT /<br/>QTHT / QOCT"]
+    QMT -->|绑定 SBIN 0..1023| SBT["128 Scheduler Blocks - SBIT / SBOT<br/>每块 8 输入"]
+    SBT <-->|TBID 0..255 门控| TBST["256 Token Bucket Shapers -<br/>TBSTR0..10"]
+    SBT -->|逐级汇聚| EPMT["72 Egress Ports - EPN 0..71 EPMT /<br/>EPOT"]
     EPMT --> OCTRL["OCTRLG / OCTRLL0..3 / OCPU"]
 ```
 

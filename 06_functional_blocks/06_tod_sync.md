@@ -12,9 +12,9 @@ TOD 寄存器窗口位于物理地址 `0x1DEFFE00`（KSEG1 `0xBDEFFE00`），地
 - `SYS_GPON.VCC`（Voice Clock Control）：控制 NTR 8 kHz 基准输出使能与分频（`NTR8KEN` bit 8、`NTREN` bit 7、`NTRFS` bits [2:0] 支持 8 kHz 至 8192 kHz 输出频率选择）。
 
 ```mermaid
-flowchart LR
-    GTC["GTC 0x1DC00000 - 30-bit SFCNT 125us 超帧"] -->|SFCNT == SFCC 比较匹配| TOD["TOD 0x1DEFFE00 - RLDS / RLDNS 装入 TCS / TCNS"]
-    CLK["GTC RX 311.04 MHz - 周期 100000/31104 ns"] -->|驱动计数器| TOD
+flowchart TD
+    GTC["GTC 0x1DC00000 - 30-bit SFCNT 125us<br/>超帧"] -->|SFCNT == SFCC 比较匹配| TOD["TOD 0x1DEFFE00 - RLDS / RLDNS 装入<br/>TCS / TCNS"]
+    CLK["GTC RX 311.04 MHz - 周期<br/>100000/31104 ns"] -->|驱动计数器| TOD
     TOD -->|1PPS 秒脉冲| PPS["外部 1PPS 引脚"]
     TOD -->|PPS / PPSDEL 中断| CPU["MIPS 34Kc"]
 ```

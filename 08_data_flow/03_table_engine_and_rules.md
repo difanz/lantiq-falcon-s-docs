@@ -8,12 +8,13 @@ flowchart TD
     HOST -->|LINK1 / LINK2 协处理器命令帧| COP_BUS["SCE 内部 COP 命令与响应总线"]
     PE_THREAD["PE0..PE5 48 路硬件线程"] -->|本地读取| PE_RAM
     PE_THREAD <-->|LINK0 发起查表与接收响应| COP_BUS
-    COP_BUS --> COP0["COP0 FID 转发域分配与 EtherType / ACL Lane 3 ID 0..7"]
-    COP_BUS --> COP1["COP1 FWD 二层 MAC / IPv4 短转发与学习老化 ID 8..15"]
-    COP_BUS --> COP2["COP2 TAG VLAN 标签过滤与 MAC 过滤 / ACL Lane 1 ID 16..23"]
-    COP_BUS --> COP3["COP3 TBL 下行 GEM Port 与 IPv6 压缩 / ACL Lane 2 ID 24..31"]
-    COP_BUS --> COP4["COP4 MSF 上行 GEM Port、源过滤与计数器 ID 32..39"]
-    COP_BUS --> COP5["COP5 EXT Extended VLAN 转换与 L4 / ACL Lane 0 ID 40..47"]
+    COP_BUS --> COP0["COP0 FID 转发域分配与 EtherType /<br/>ACL Lane 3 ID 0..7"]
+    COP_BUS --> COP1["COP1 FWD 二层 MAC / IPv4<br/>短转发与学习老化 ID 8..15"]
+    COP_BUS --> COP2["COP2 TAG VLAN 标签过滤与 MAC 过滤 /<br/>ACL Lane 1 ID 16..23"]
+    COP_BUS --> COP3["COP3 TBL 下行 GEM Port 与 IPv6 压缩<br/>/ ACL Lane 2 ID 24..31"]
+    COP_BUS --> COP4["COP4 MSF 上行 GEM<br/>Port、源过滤与计数器 ID 32..39"]
+    COP_BUS --> COP5["COP5 EXT Extended VLAN 转换与 L4 /<br/>ACL Lane 0 ID 40..47"]
+    COP0 ~~~ COP1 ~~~ COP2 ~~~ COP3 ~~~ COP4 ~~~ COP5
 ```
 
 ---
@@ -104,15 +105,15 @@ GPE 将全部硬件表统一编址在 7-bit 全局 `Table ID`（`0`–`79`）空
 ```mermaid
 flowchart TD
     SMAC_IN["入向报文开启源 MAC 学习"] --> RELEARN["调用 COP1 IF_FWD_RELEARN PC=12"]
-    RELEARN -->|命中且源端口未变 eq8=1| NOW_UPD["执行 now 刷新时间戳并覆盖写回 Table 2"]
+    RELEARN -->|命中且源端口未变 eq8=1| NOW_UPD["执行 now 刷新时间戳并覆盖写回 Table<br/>2"]
     RELEARN -->|命中但源端口变化 eq8=0 返回 err=6| PORT_LOCK{"PE 检查端口锁定标志"}
     PORT_LOCK -->|端口已锁定| DROP["丢弃帧并递增丢包计数"]
-    PORT_LOCK -->|允许迁移| RM_OLD["调用 IF_FWD_REMOVE PC=57 删除旧端口项"]
+    PORT_LOCK -->|允许迁移| RM_OLD["调用 IF_FWD_REMOVE PC=57<br/>删除旧端口项"]
     RM_OLD --> ADD_NEW["调用 IF_FWD_ADD PC=26 学习新端口项"]
     RELEARN -->|未命中 返回 err=7| ADD_NEW
     ADD_NEW --> LIM_CHK{"Table 3 计数 lt16 检查"}
     LIM_CHK -->|已达上限 lt16=0| LIM_ERR["返回 err=7 递增网桥学习丢弃计数"]
-    LIM_CHK -->|未达上限 lt16=1| INS_TBL["写入当前时间戳 插入 Table 2/1 并执行 count 3 +1"]
+    LIM_CHK -->|未达上限 lt16=1| INS_TBL["写入当前时间戳 插入 Table 2/1 并执行<br/>count 3 +1"]
 ```
 
 - **目的地址查找 (`IF_FWD_FORWARD`, `PC = 1`)**：以 64 位键（`FID + DMAC` 或 `FID + DIP`）查 `Table 1` 与 `Table 2`。命中时读取高 64 位转发载荷，通过 `mov %data1, 0x100` 与 `or %data1, %data2` 将 `Word 2 [8]` 活动位置 `1` 后以 `add 2, 1` 覆盖写回，并将目标 `bridge_port_index`（单播）或 23 位 `port_map`（组播）返回给 PE。

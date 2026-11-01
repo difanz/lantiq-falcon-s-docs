@@ -6,11 +6,11 @@ OMCI（ONT Management and Control Interface，ITU-T G.988）通道建立在专�
 
 ```mermaid
 flowchart TD
-    GTC_RX["GTC 下行管理 GEM 帧 0x1DC00000"] -->|Port-ID 匹配| ICTRLG_OMCI["ICTRLG gpt 与 gpix_cfg PDUT=1 0x1D450000"]
+    GTC_RX["GTC 下行管理 GEM 帧 0x1DC00000"] -->|Port-ID 匹配| ICTRLG_OMCI["ICTRLG gpt 与 gpix_cfg PDUT=1<br/>0x1D450000"]
     ICTRLG_OMCI -->|写入 SSB0 并入队| IQM_Q7["IQM 管理队列 Q7 0x1D410000"]
     IQM_Q7 -->|直通调度至 CPU EPN| OMCI_CORE["OMCI 协议引擎与 MIB 状态库"]
     OMCI_CORE -->|生成响应帧与告警 AVC| ICTRLC_TX["ICTRLC CPU 注入控制器 0x1D461000"]
-    ICTRLC_TX -->|TMU T-CONT 0 队列| OCTRLG_TX["OCTRLG tcmap TCIX=0 与 gpixtable 0x1D420000"]
+    ICTRLC_TX -->|TMU T-CONT 0 队列| OCTRLG_TX["OCTRLG tcmap TCIX=0 与 gpixtable<br/>0x1D420000"]
     OCTRLG_TX -->|上行突发发送| GTC_TX["GTC 上行成帧器 0x1DC00000"]
     OMCI_CORE -->|T-CONT 与 GEM 映射| HW_PON["OCTRLG / ICTRLG / GTC 端口表"]
     OMCI_CORE -->|队列 / 整形 / 调度树| HW_TMU["TMU 0x1D404000 与 TBM 0x1D600700"]

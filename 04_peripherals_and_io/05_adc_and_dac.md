@@ -5,26 +5,32 @@ Falcon SoC 在光模拟前端（`PMA` / `FCSI`）、电源管理模块（`DCDC`�
 ```mermaid
 flowchart TD
     subgraph MM_BLOCK["测量模块 10 通道 GPADC - 0x1DD00100"]
-        MUX["模拟输入多路复用开关 - M_SET_0..9"] --> SC["可编程增益开关电容缓冲器 - GS0..GS5 1x..32x"]
-        SC --> SAR["311 MHz 逐次逼近型 SAR ADC - GPON_MM_SLICE_PDI.ADC"]
+        direction TB
+        MUX["模拟输入多路复用开关 - M_SET_0..9"] --> SC["可编程增益开关电容缓冲器 - GS0..GS5<br/>1x..32x"]
+        SC --> SAR["311 MHz 逐次逼近型 SAR ADC -<br/>GPON_MM_SLICE_PDI.ADC"]
         SAR --> COMB["梳状抽取滤波器 - MM_CFG"]
-        COMB --> RES["16-bit 采样结果寄存器组 - M_RESULT_0..9"]
-        RES --> ALM["硬件门限比较器 - ALARM_CFG LOS / OVERLOAD"]
+        COMB --> RES["16-bit 采样结果寄存器组 -<br/>M_RESULT_0..9"]
+        RES --> ALM["硬件门限比较器 - ALARM_CFG LOS /<br/>OVERLOAD"]
     end
 
     subgraph DAC_BLOCK["光收发机与模拟前端 DAC 阵列"]
-        LD_DAC["激光器偏置与调制电流 DAC - 4x9-bit 切片 72mA / 120mA"]
-        BFD_DAC["BFD TIA 失调与 P0/P1 电平 DAC - 粗调 9-bit + 细调 9-bit"]
-        RX_DAC["接收机 DFE 判决阈值 DAC - DATA_HI / DATA_LO / MONITOR"]
-        VDAC["1550 nm 视频 R-2R DAC - FCSI VDAC 9-bit"]
+        direction TB
+        LD_DAC["激光器偏置与调制电流 DAC - 4x9-bit<br/>切片 72mA / 120mA"]
+        BFD_DAC["BFD TIA 失调与 P0/P1 电平 DAC - 粗调<br/>9-bit + 细调 9-bit"]
+        RX_DAC["接收机 DFE 判决阈值 DAC - DATA_HI /<br/>DATA_LO / MONITOR"]
+        VDAC["1550 nm 视频 R-2R DAC - FCSI VDAC<br/>9-bit"]
     end
 
     subgraph DCDC_BLOCK["DC/DC 闭环感测 ADC 与基准 DAC"]
+        direction TB
         DCDC_ADC["高速电压误差感测 ADC - PDI_ADC0..2"]
         DCDC_REF["8-bit 数字稳压基准 - PDI_DIG_REF"]
     end
 
-    CBIAS["中央偏置与带隙基准源 - FCSI CBIAS #20/#21"] --> MM_BLOCK
+    LD_DAC ~~~ BFD_DAC ~~~ RX_DAC ~~~ VDAC
+    DCDC_ADC ~~~ DCDC_REF
+    MM_BLOCK ~~~ DAC_BLOCK ~~~ DCDC_BLOCK
+    CBIAS["中央偏置与带隙基准源 - FCSI CBIAS<br/>#20/#21"] --> MM_BLOCK
     CBIAS --> DAC_BLOCK
 ```
 

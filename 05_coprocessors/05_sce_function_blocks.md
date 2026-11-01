@@ -14,6 +14,7 @@ flowchart TD
     LINK_SW --> FB_MSF["COP4 MSF 功能块 全局表 ID 32..39"]
     LINK_SW --> FB_EXT["COP5 EXT 功能块 全局表 ID 40..47"]
     LINK_SW --> FB_TBM["COP14 TBM 双令牌桶计量功能块"]
+    FB_FID ~~~ FB_FWD ~~~ FB_TAG ~~~ FB_TBL ~~~ FB_MSF ~~~ FB_EXT ~~~ FB_TBM
 ```
 
 ---

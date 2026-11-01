@@ -4,17 +4,17 @@ GPE 的 VLAN 转换、入向流分类（4-Lane ACL）、IPv6 地址压缩与组�
 
 ```mermaid
 flowchart TD
-    PKT_IN["DISP 分发报文头至 PE 线程"] --> ACL_STAGE["4-Lane 并行 ACL 搜索 COP5 / COP2 / COP3 / COP0"]
-    ACL_STAGE -->|正常转发| EXTVLAN_STAGE["COP5 EXT Extended VLAN 规则查找与标签合成"]
+    PKT_IN["DISP 分发报文头至 PE 线程"] --> ACL_STAGE["4-Lane 并行 ACL 搜索 COP5 / COP2 /<br/>COP3 / COP0"]
+    ACL_STAGE -->|正常转发| EXTVLAN_STAGE["COP5 EXT Extended VLAN<br/>规则查找与标签合成"]
     ACL_STAGE -->|协议捕获 IGMP / MLD / ARP / DHCP| CPU_Q["TMU CPU 出向端口 EPN 68..71"]
     EXTVLAN_STAGE --> FID_STAGE["COP0 FID 桥接域映射"]
     FID_STAGE -->|二层 MAC 或 IPv4| FWD_STAGE["COP1 FWD 短转发哈希查找"]
-    FID_STAGE -->|128-bit IPv6 地址| IPV6_RED["COP3 TBL IF_IPV6_REDUCE 压缩为 9-bit 索引"]
+    FID_STAGE -->|128-bit IPv6 地址| IPV6_RED["COP3 TBL IF_IPV6_REDUCE 压缩为 9-bit<br/>索引"]
     IPV6_RED --> FWD_STAGE
-    FWD_STAGE -->|组播启用源过滤| MSF_STAGE["COP4 MSF DS_MC_IP_SOURCE_FILTER 源地址过滤"]
+    FWD_STAGE -->|组播启用源过滤| MSF_STAGE["COP4 MSF DS_MC_IP_SOURCE_FILTER<br/>源地址过滤"]
     FWD_STAGE -->|单播或免源过滤组播| TAG_STAGE["COP2 TAG 出向 VLAN Tagging Filter"]
     MSF_STAGE --> TAG_STAGE
-    TAG_STAGE --> MERGE_STAGE["MERGE 头部写回与组播描述符扇出 0x1D600600"]
+    TAG_STAGE --> MERGE_STAGE["MERGE 头部写回与组播描述符扇出<br/>0x1D600600"]
     MERGE_STAGE -->|FSQM 引用计数 = K| TMU_Q["TMU 目标出向队列 QID 0..255"]
 ```
 

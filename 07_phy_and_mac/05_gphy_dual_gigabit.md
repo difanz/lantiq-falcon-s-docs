@@ -13,10 +13,10 @@ Falcon SoC 内置两个 10/100/1000BASE-T 以太网物理层收发器（`GPHY0` 
 | `SBS0CTRL` (`0x1F080000`) | `GPHY0IMG` (`0x10`)<br/>`GPHY1IMG` (`0x18`) | GPHY0 与 GPHY1 的 64 KiB 8051 程序空间基址重映射寄存器。`ADDRV`（bits [21:14]，掩码 `0x003FC000`）指定固件在片上 `SBS0` 地址空间中的 16 KiB 对齐偏移 |
 
 ```mermaid
-flowchart LR
-    MIPS["MIPS 34Kc"] -->|写入 48 KiB 固件镜像| SRAM["SBS0RAM 0x1F204000 - KSEG1 0xBF204000"]
-    MIPS -->|写 ADDRV = 0x00204000| SBS0CTRL["SBS0CTRL 0x1F080000 - GPHY0IMG 0x10 / GPHY1IMG 0x18"]
-    SBS0CTRL -->|64 KiB CODE 总线映射| MCU["GPHY0 / GPHY1 内部 8051 - 公共区与分页代码窗口"]
+flowchart TD
+    MIPS["MIPS 34Kc"] -->|写入 48 KiB 固件镜像| SRAM["SBS0RAM 0x1F204000 - KSEG1<br/>0xBF204000"]
+    MIPS -->|写 ADDRV = 0x00204000| SBS0CTRL["SBS0CTRL 0x1F080000 - GPHY0IMG 0x10<br/>/ GPHY1IMG 0x18"]
+    SBS0CTRL -->|64 KiB CODE 总线映射| MCU["GPHY0 / GPHY1 内部 8051 -<br/>公共区与分页代码窗口"]
     SRAM -->|指令取指| MCU
     EIM["EIM MDIO 主机 0x1D800184"] <-->|内部 MDIO 总线| MCU
 ```
